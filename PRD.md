@@ -3,6 +3,7 @@
 ## What We're Building
 
 A RAG application with two interfaces:
+
 1. **Chat** (default view) - Threaded conversations with retrieval-augmented responses
 2. **Ingestion** - Upload files manually, track processing, manage documents
 
@@ -13,6 +14,7 @@ This is **not** an automated pipeline with connectors. Files are uploaded manual
 Technically-minded people who want to build production RAG systems using AI coding tools (Claude Code, Cursor, etc.). They don't need to know Python or React - that's the AI's job.
 
 **They need to understand:**
+
 - RAG concepts deeply (chunking, embeddings, retrieval, reranking)
 - Codebase structure (what sits where, how pieces connect)
 - How to direct AI to build what they need
@@ -21,6 +23,7 @@ Technically-minded people who want to build production RAG systems using AI codi
 ## Scope
 
 ### In Scope
+
 - ✅ Document ingestion and processing
 - ✅ Vector search with pgvector
 - ✅ Hybrid search (keyword + vector)
@@ -36,6 +39,7 @@ Technically-minded people who want to build production RAG systems using AI codi
 - ✅ Auth with RLS
 
 ### Out of Scope
+
 - ❌ Knowledge graphs / GraphRAG
 - ❌ Code execution / sandboxing
 - ❌ Image/audio/video processing
@@ -48,18 +52,18 @@ Technically-minded people who want to build production RAG systems using AI codi
 
 ## Stack
 
-| Layer | Choice |
-|-------|--------|
-| Frontend | React + TypeScript + Vite + Tailwind + shadcn/ui |
-| Backend | Python + FastAPI |
-| Database | Supabase (Postgres + pgvector + Auth + Storage + Realtime) |
-| LLM (Module 1) | OpenAI Responses API (managed threads + file_search) |
+| Layer           | Choice                                                               |
+| --------------- | -------------------------------------------------------------------- |
+| Frontend        | React + TypeScript + Vite + Tailwind + shadcn/ui                     |
+| Backend         | NodeJS + express                                                     |
+| Database        | Supabase (Postgres + pgvector + Auth + Storage + Realtime)           |
+| LLM (Module 1)  | OpenAI Responses API (managed threads + file_search)                 |
 | LLM (Module 2+) | Any OpenAI-compatible endpoint (OpenRouter, Ollama, LM Studio, etc.) |
-| Observability | LangSmith |
+| Observability   | Laminar                                                              |
 
 ## Constraints
 
-- No LLM frameworks - raw OpenAI SDK using the standard Chat Completions API (OpenAI-compatible), Pydantic for structured outputs
+- No LLM frameworks - raw OpenAI SDK using the standard Chat Completions API (OpenAI-compatible), zod for structured outputs
 - Row-Level Security on all tables - users only see their own data
 - Streaming chat via SSE
 - Ingestion status via Supabase Realtime
@@ -68,7 +72,7 @@ Technically-minded people who want to build production RAG systems using AI codi
 
 ## Module 1: The App Shell + Observability
 
-**Build:** Auth, chat UI, OpenAI Responses API (manages threads + file_search), LangSmith tracing
+**Build:** Auth, chat UI, OpenAI Responses API (manages threads + file_search), Laminar tracing
 
 **Learn:** What RAG is, why managed RAG exists, its limitations (OpenAI handles memory and retrieval - black box)
 
@@ -82,9 +86,9 @@ At the end of Module 1, you have a working chat app using OpenAI's **Responses A
 
 **The decision you need to make:** What do you do with the Responses API code? Here are two common approaches, but you're not limited to these—come up with your own if it makes sense for your use case.
 
-| Option | Approach | Pros | Cons |
-|--------|----------|------|------|
-| **A: Replace** | Remove Responses API code entirely, rebuild on Chat Completions | Clean codebase, single pattern, easier to maintain | Lose the ability to use OpenAI's managed RAG |
+| Option              | Approach                                                                | Pros                                                          | Cons                                              |
+| ------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------- |
+| **A: Replace**      | Remove Responses API code entirely, rebuild on Chat Completions         | Clean codebase, single pattern, easier to maintain            | Lose the ability to use OpenAI's managed RAG      |
 | **B: Dual Support** | Keep Responses API alongside Chat Completions, configurable per request | Flexibility to use either approach, compare them side-by-side | More complex codebase, two patterns to understand |
 
 There is no right answer—this is a real architectural choice you'll face in building production systems.
@@ -156,6 +160,7 @@ There is no right answer—this is a real architectural choice you'll face in bu
 ## Success Criteria
 
 By the end, students should have:
+
 - ✅ A working RAG application they built with AI assistance
 - ✅ Deep understanding of RAG concepts (chunking, embedding, retrieval, reranking)
 - ✅ Understanding of codebase structure - what lives where, how pieces connect

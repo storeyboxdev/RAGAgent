@@ -2,17 +2,23 @@
 
 RAG app with chat (default) and document ingestion interfaces. Config via env vars, no admin UI.
 
+## Environment Notes
+- Operating System: Windows 11 Home 10.0.26200
+- File paths should use backslashes (\) as the standard separator
+- Command line tools may support forward slashes (/) but backslash is the conventional path format
+
 ## Stack
+
 - Frontend: React + Vite + Tailwind + shadcn/ui
-- Backend: Python + FastAPI
-- Database: Supabase (Postgres, pgvector, Auth, Storage, Realtime)
-- LLM: OpenAI (Module 1), OpenRouter (Module 2+)
-- Observability: LangSmith
+- Backend: NodeJS + Express
+- Database: Supabase (Postgres, pgvector, Auth, Storage, Realtime) running in docker container and persisting data by mounting a local directory
+- LLM: OpenAI (Module 1), LMStudio (Module 2+),
+- Observability: Laminar
 
 ## Rules
-- Python backend must use a `venv` virtual environment
+
 - No LangChain, no LangGraph - raw SDK calls only
-- Use Pydantic for structured LLM outputs
+- Use Zod for structured LLM outputs
 - All tables need Row-Level Security - users only see their own data
 - Stream chat responses via SSE
 - Use Supabase Realtime for ingestion status updates
@@ -20,6 +26,7 @@ RAG app with chat (default) and document ingestion interfaces. Config via env va
 - Ingestion is manual file upload only - no connectors or automated pipelines
 
 ## Planning
+
 - Save all plans to `.agent/plans/` folder
 - Naming convention: `{sequence}.{plan-name}.md` (e.g., `1.auth-setup.md`, `2.document-ingestion.md`)
 - Plans should be detailed enough to execute without ambiguity
@@ -31,10 +38,12 @@ RAG app with chat (default) and document ingestion interfaces. Config via env va
   - 🔴 **Complex** - Break into sub-plans before executing
 
 ## Development Flow
+
 1. **Plan** - Create a detailed plan and save it to `.agent/plans/`
 2. **Build** - Execute the plan to implement the feature
 3. **Validate** - Test and verify the implementation works correctly. Use browser testing where applicable via an appropriate MCP
 4. **Iterate** - Fix any issues found during validation
 
 ## Progress
+
 Check PROGRESS.md for current module status. Update it as you complete tasks.
