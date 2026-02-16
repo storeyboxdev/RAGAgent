@@ -9,6 +9,7 @@ const statusVariant = {
   processing: 'outline',
   completed: 'default',
   error: 'destructive',
+  duplicate: 'secondary',
 };
 
 export default function DocumentCard({ document, onDeleted }) {

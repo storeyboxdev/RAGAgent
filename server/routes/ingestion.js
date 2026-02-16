@@ -3,6 +3,7 @@ import multer from 'multer';
 import { createSupabaseClient, supabaseAdmin } from '../lib/supabase.js';
 import { chunkText } from '../lib/chunking.js';
 import { generateEmbeddings } from '../lib/embeddings.js';
+import { hashBuffer, hashString } from '../lib/hashing.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -16,6 +17,35 @@ router.post('/upload', upload.single('file'), async (req, res) => {
   const supabase = createSupabaseClient(req.accessToken);
   const userId = req.user.id;
   const { originalname, mimetype, size, buffer } = req.file;
+
+  // Compute content hash for dedup
+  const contentHash = hashBuffer(buffer);
+
+  // Check for exact duplicate (same content hash, active status)
+  const { data: existingByHash } = await supabase
+    .from('documents')
+    .select('*')
+    .eq('content_hash', contentHash)
+    .in('status', ['completed', 'processing', 'pending'])
+    .maybeSingle();
+
+  if (existingByHash) {
+    return res.status(200).json({ ...existingByHash, duplicate: true });
+  }
+
+  // Check for same filename with different hash (re-upload of modified file)
+  const { data: existingByName } = await supabase
+    .from('documents')
+    .select('*')
+    .eq('filename', originalname)
+    .in('status', ['completed', 'processing', 'pending'])
+    .maybeSingle();
+
+  if (existingByName) {
+    // Delete old storage file via admin, old DB row via user client
+    await supabaseAdmin.storage.from('documents').remove([existingByName.storage_path]);
+    await supabase.from('documents').delete().eq('id', existingByName.id);
+  }
 
   // Create document record
   const docId = crypto.randomUUID();
@@ -41,6 +71,7 @@ router.post('/upload', upload.single('file'), async (req, res) => {
       file_size: size,
       storage_path: storagePath,
       status: 'pending',
+      content_hash: contentHash,
     })
     .select()
     .single();
@@ -154,6 +185,7 @@ async function processDocument(docId, userId, storagePath) {
       content: chunk.content,
       chunk_index: chunk.chunkIndex,
       embedding: JSON.stringify(allEmbeddings[i]),
+      content_hash: hashString(chunk.content),
     }));
 
     const { error: chunkError } = await supabaseAdmin

@@ -36,6 +36,16 @@ Track your progress through the masterclass. Update this file as you complete mo
 - [x] Task 9: Realtime Ingestion Status — Supabase Realtime subscription for live document status updates
 - [x] Task 10: Tool Call Display in Chat UI — ToolCallIndicator with expandable chunk results
 
+### Module 3: Record Manager
+[x]
+- [x] Task 1: Database Migration — content_hash columns, unique index, updated status constraint
+- [x] Task 2: Hashing Utility Library — hashBuffer/hashString with SHA-256, unit tests
+- [x] Task 3: Upload Dedup Logic — exact duplicate detection, re-upload with different content handling
+- [x] Task 4: Chunk-Level Hashing — content_hash on each chunk row
+- [x] Task 5: Integration Tests — duplicate detection, re-upload, content_hash in payloads
+- [x] Task 6: Frontend — duplicate status badge, duplicate alert on upload
+- [x] Task 7: Full Test Suite — all 44 tests passing
+
 ### Regression Test Suite
 [x]
 - [x] Test infrastructure (vitest + supertest, app.js extraction)

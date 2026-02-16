@@ -30,6 +30,9 @@ export default function FileUpload({ onUploaded }) {
 
       if (res.ok) {
         const doc = await res.json();
+        if (doc.duplicate) {
+          alert('File already uploaded (identical content).');
+        }
         onUploaded?.(doc);
       } else {
         const err = await res.json();

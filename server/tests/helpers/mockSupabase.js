@@ -2,7 +2,7 @@ import { vi } from 'vitest';
 
 /**
  * Create a chainable query mock that resolves with `result`.
- * Supports .select(), .insert(), .update(), .delete(), .eq(), .order(), .single(), and bare await.
+ * Supports .select(), .insert(), .update(), .delete(), .eq(), .in(), .order(), .single(), .maybeSingle(), and bare await.
  */
 export function createQueryChain(result) {
   const chain = {
@@ -11,8 +11,10 @@ export function createQueryChain(result) {
     update: vi.fn().mockReturnThis(),
     delete: vi.fn().mockReturnThis(),
     eq: vi.fn().mockReturnThis(),
+    in: vi.fn().mockReturnThis(),
     order: vi.fn().mockReturnThis(),
     single: vi.fn().mockResolvedValue(result),
+    maybeSingle: vi.fn().mockResolvedValue(result),
     then: (resolve) => resolve(result),
   };
   return chain;
