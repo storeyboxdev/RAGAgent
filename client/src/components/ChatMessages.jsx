@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import MessageBubble from './MessageBubble';
+import ToolCallIndicator from './ToolCallIndicator';
 
 export default function ChatMessages({ messages }) {
   const bottomRef = useRef(null);
@@ -20,9 +21,13 @@ export default function ChatMessages({ messages }) {
   return (
     <ScrollArea className="flex-1 px-4">
       <div className="max-w-3xl mx-auto py-4">
-        {messages.map((msg, i) => (
-          <MessageBubble key={i} message={msg} />
-        ))}
+        {messages.map((msg, i) =>
+          msg.type === 'tool_call' ? (
+            <ToolCallIndicator key={`tool-${i}`} toolCall={msg} />
+          ) : (
+            <MessageBubble key={i} message={msg} />
+          )
+        )}
         <div ref={bottomRef} />
       </div>
     </ScrollArea>

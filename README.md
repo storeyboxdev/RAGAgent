@@ -1,5 +1,7 @@
 # Cloud Code Agentic RAG Masterclass
 
+This repo is my bastardization of the tutorial. I changed the backend to nodejs and I'm using Laminar for tracing. I tried to build the code with LM Studio and Ollama models but only have 16gb gpu and couldn't move the needle enough.
+
 Build an agentic RAG application from scratch by collaborating with Claude Code. Follow along with our video series using the docs in this repo.
 
 [![Claude Code RAG Masterclass](./video-thumbnail.png)](https://www.youtube.com/watch?v=xgPWCuqLoek)
@@ -21,14 +23,14 @@ A hands-on course where you collaborate with Claude Code to build a full-feature
 
 ## Tech Stack
 
-| Layer | Tech |
-|-------|------|
-| Frontend | React, TypeScript, Tailwind, shadcn/ui, Vite |
-| Backend | Python, FastAPI |
-| Database | Supabase (Postgres + pgvector + Auth + Storage) |
-| Doc Processing | Docling |
-| AI Models | Local (LM Studio) or Cloud (OpenAI, OpenRouter) |
-| Observability | LangSmith |
+| Layer          | Tech                                            |
+| -------------- | ----------------------------------------------- |
+| Frontend       | React, TypeScript, Tailwind, shadcn/ui, Vite    |
+| Backend        | Python, FastAPI                                 |
+| Database       | Supabase (Postgres + pgvector + Auth + Storage) |
+| Doc Processing | Docling                                         |
+| AI Models      | Local (LM Studio) or Cloud (OpenAI, OpenRouter) |
+| Observability  | LangSmith                                       |
 
 ## The 8 Modules
 

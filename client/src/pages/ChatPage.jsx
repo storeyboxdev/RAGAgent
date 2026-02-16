@@ -21,7 +21,11 @@ export default function ChatPage() {
       const res = await apiFetch(`/chat/${activeThreadId}/messages`);
       if (res.ok) {
         const data = await res.json();
-        setMessages(data);
+        // Filter to only user/assistant messages for display (skip tool/system messages)
+        const displayMessages = data.filter(
+          (m) => m.role === 'user' || (m.role === 'assistant' && m.content)
+        );
+        setMessages(displayMessages);
       }
     };
 
@@ -39,9 +43,6 @@ export default function ChatPage() {
     setMessages((prev) => [...prev, { role: 'user', content }]);
     setStreaming(true);
 
-    // Add placeholder assistant message
-    setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
-
     try {
       const res = await apiFetch('/chat', {
         method: 'POST',
@@ -51,6 +52,7 @@ export default function ChatPage() {
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
+      let hasAssistantMessage = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -64,46 +66,63 @@ export default function ChatPage() {
           if (!line.startsWith('data: ')) continue;
           const data = JSON.parse(line.slice(6));
 
-          if (data.type === 'text_delta') {
+          if (data.type === 'tool_call') {
+            // Add a tool call indicator
+            setMessages((prev) => [
+              ...prev,
+              { type: 'tool_call', name: data.name, arguments: data.arguments },
+            ]);
+          } else if (data.type === 'tool_result') {
+            // Update the last tool call with results
             setMessages((prev) => {
               const updated = [...prev];
-              const last = updated[updated.length - 1];
-              updated[updated.length - 1] = { ...last, content: last.content + data.content };
+              for (let i = updated.length - 1; i >= 0; i--) {
+                if (updated[i].type === 'tool_call' && updated[i].name === data.name && !updated[i].chunks) {
+                  updated[i] = { ...updated[i], chunks: data.chunks };
+                  break;
+                }
+              }
               return updated;
             });
+            // Reset so next text_delta creates a new assistant message
+            hasAssistantMessage = false;
+          } else if (data.type === 'text_delta') {
+            if (!hasAssistantMessage) {
+              // Add new assistant message placeholder
+              setMessages((prev) => [...prev, { role: 'assistant', content: data.content }]);
+              hasAssistantMessage = true;
+            } else {
+              setMessages((prev) => {
+                const updated = [...prev];
+                const last = updated[updated.length - 1];
+                updated[updated.length - 1] = { ...last, content: last.content + data.content };
+                return updated;
+              });
+            }
           } else if (data.type === 'done') {
-            // Refresh thread list to show updated title
             if (data.title) {
               threadListRef.current?.refresh();
             }
           } else if (data.type === 'error') {
-            setMessages((prev) => {
-              const updated = [...prev];
-              updated[updated.length - 1] = {
-                role: 'assistant',
-                content: `Error: ${data.content}`,
-              };
-              return updated;
-            });
+            setMessages((prev) => [
+              ...prev,
+              { role: 'assistant', content: `Error: ${data.content}` },
+            ]);
           }
         }
       }
     } catch (error) {
-      setMessages((prev) => {
-        const updated = [...prev];
-        updated[updated.length - 1] = {
-          role: 'assistant',
-          content: `Error: ${error.message}`,
-        };
-        return updated;
-      });
+      setMessages((prev) => [
+        ...prev,
+        { role: 'assistant', content: `Error: ${error.message}` },
+      ]);
     } finally {
       setStreaming(false);
     }
   }, [activeThreadId, streaming]);
 
   return (
-    <div className="h-screen flex bg-background text-foreground">
+    <div className="h-full flex bg-background text-foreground">
       <ThreadList
         ref={threadListRef}
         activeThreadId={activeThreadId}

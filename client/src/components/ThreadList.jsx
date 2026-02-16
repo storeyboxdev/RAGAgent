@@ -4,11 +4,9 @@ import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
-import { Plus, Trash2, LogOut } from 'lucide-react';
-import { useAuth } from '@/context/AuthContext';
+import { Plus, Trash2 } from 'lucide-react';
 
 const ThreadList = forwardRef(function ThreadList({ activeThreadId, onSelectThread, onThreadsChange }, ref) {
-  const { signOut, user } = useAuth();
   const [threads, setThreads] = useState([]);
 
   const fetchThreads = async () => {
@@ -92,13 +90,6 @@ const ThreadList = forwardRef(function ThreadList({ activeThreadId, onSelectThre
           )}
         </div>
       </ScrollArea>
-      <Separator />
-      <div className="p-3 flex items-center justify-between">
-        <span className="text-xs text-muted-foreground truncate">{user?.email}</span>
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={signOut}>
-          <LogOut className="h-4 w-4" />
-        </Button>
-      </div>
     </div>
   );
 });

@@ -41,8 +41,18 @@ RAG app with chat (default) and document ingestion interfaces. Config via env va
 
 1. **Plan** - Create a detailed plan and save it to `.agent/plans/`
 2. **Build** - Execute the plan to implement the feature
-3. **Validate** - Test and verify the implementation works correctly. Use browser testing where applicable via an appropriate MCP
-4. **Iterate** - Fix any issues found during validation
+3. **Test** - Run `cd server && npm test` — all tests must pass
+4. **Validate** - Test and verify the implementation works correctly. Use browser testing where applicable via an appropriate MCP
+5. **Iterate** - Fix any issues found during testing or validation
+
+## Testing
+
+- Test framework: vitest + supertest (server-side only)
+- Run all tests: `cd server && npm test`
+- Run in watch mode: `cd server && npm run test:watch`
+- Tests run with mocked external deps (no LMStudio or Supabase needed)
+- **Run the full test suite after every new feature or rewrite** before committing
+- Tests must all pass before a feature is considered complete
 
 ## Progress
 

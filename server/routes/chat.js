@@ -1,9 +1,14 @@
 import { Router } from 'express';
-import { Laminar, observe } from '@lmnr-ai/lmnr';
+import { observe, Laminar } from '@lmnr-ai/lmnr';
+import { tool } from '@lmstudio/sdk';
+import { z } from 'zod';
 import { createSupabaseClient } from '../lib/supabase.js';
-import openai from '../lib/openai.js';
+import { getLlmModel } from '../lib/lmstudio.js';
+import { searchDocuments } from '../lib/retrieval.js';
 
 const router = Router();
+
+const SYSTEM_PROMPT = `You are a helpful assistant. You have access to a document search tool that can find relevant information from the user's uploaded documents. When the user asks a question that might be answered by their documents, use the search_documents tool to find relevant information. Always cite information that comes from documents.`;
 
 // POST /api/chat — SSE streaming chat
 router.post('/', async (req, res) => {
@@ -15,7 +20,7 @@ router.post('/', async (req, res) => {
 
   const supabase = createSupabaseClient(req.accessToken);
 
-  // Fetch thread to get previous_response_id
+  // Fetch thread
   const { data: thread, error: threadError } = await supabase
     .from('threads')
     .select('*')
@@ -38,75 +43,69 @@ router.post('/', async (req, res) => {
       name: 'chat_handler',
       sessionId: threadId,
       userId: req.user.id,
-      input: { message, threadId, hasPreviousContext: !!thread.openai_response_id },
+      input: { message, threadId },
     },
     async () => {
       try {
-        const responseParams = {
-          model: 'gpt-4o-mini',
-          input: message,
-          stream: true,
-        };
-
-        if (thread.openai_response_id) {
-          responseParams.previous_response_id = thread.openai_response_id;
-        }
-
-        // Wrap the OpenAI call in its own span since auto-instrumentation
-        // doesn't support the Responses API
-        const { assistantContent, responseId, usage } = await observe(
-          {
-            name: 'openai.responses.create',
-            spanType: 'LLM',
-            input: { model: responseParams.model, message, previous_response_id: responseParams.previous_response_id ?? null },
-          },
-          async () => {
-            const stream = await openai.responses.create(responseParams);
-
-            let assistantContent = '';
-            let responseId = null;
-            let usage = null;
-
-            for await (const event of stream) {
-              if (event.type === 'response.output_text.delta') {
-                assistantContent += event.delta;
-                res.write(`data: ${JSON.stringify({ type: 'text_delta', content: event.delta })}\n\n`);
-              } else if (event.type === 'response.completed') {
-                responseId = event.response.id;
-                usage = event.response.usage;
-              }
-            }
-
-            const result = { assistantContent, responseId, usage };
-
-            // Manually set span output and LLM attributes
-            Laminar.setSpanOutput(assistantContent);
-            if (usage) {
-              Laminar.setSpanAttributes({
-                'llm.usage.prompt_tokens': usage.input_tokens,
-                'llm.usage.completion_tokens': usage.output_tokens,
-                'gen_ai.request.model': responseParams.model,
-                'gen_ai.response.model': responseParams.model,
-              });
-            }
-
-            return result;
-          }
-        );
-
-        // Update thread with new response ID and cached messages
+        // Build messages array from thread history (user + assistant only)
         const currentMessages = thread.messages || [];
-        const updatedMessages = [
+        const messages = [
+          { role: 'system', content: SYSTEM_PROMPT },
           ...currentMessages,
+          { role: 'user', content: message },
+        ];
+
+        // Capture the user ID for the tool closure
+        const userId = req.user.id;
+
+        // Define search tool using LMStudio SDK tool() helper
+        const searchTool = tool({
+          name: 'search_documents',
+          description: 'Search the user\'s uploaded documents for relevant information. Use this when the user asks about content that might be in their documents.',
+          parameters: {
+            query: z.string().describe('The search query to find relevant document chunks'),
+          },
+          implementation: async ({ query }) => {
+            // Emit tool_call SSE event
+            res.write(`data: ${JSON.stringify({ type: 'tool_call', name: 'search_documents', arguments: { query } })}\n\n`);
+
+            const chunks = await searchDocuments(query, userId);
+
+            // Emit tool_result SSE event
+            res.write(`data: ${JSON.stringify({ type: 'tool_result', name: 'search_documents', chunks })}\n\n`);
+
+            return JSON.stringify(chunks);
+          },
+        });
+
+        // Get the LLM model handle
+        const model = await getLlmModel();
+
+        // Accumulate full assistant content across all rounds
+        let assistantContent = '';
+
+        // Run .act() — handles tool call loop automatically
+        await model.act(messages, [searchTool], {
+          onPredictionFragment: (fragment) => {
+            if (fragment.content) {
+              assistantContent += fragment.content;
+              res.write(`data: ${JSON.stringify({ type: 'text_delta', content: fragment.content })}\n\n`);
+            }
+          },
+          temperature: 0.7,
+          maxPredictionRounds: 5,
+        });
+
+        Laminar.setSpanOutput(assistantContent);
+
+        // Store only user + assistant messages in thread history
+        const newMessages = [
           { role: 'user', content: message },
           { role: 'assistant', content: assistantContent },
         ];
 
-        // Auto-title from first user message
-        const updateData = {
-          openai_response_id: responseId,
-          messages: updatedMessages,
-        };
+        const updatedMessages = [...currentMessages, ...newMessages];
+        const updateData = { messages: updatedMessages };
 
         if (currentMessages.length === 0) {
           updateData.title = message.slice(0, 50) + (message.length > 50 ? '...' : '');
@@ -116,8 +115,6 @@ router.post('/', async (req, res) => {
           .from('threads')
           .update(updateData)
           .eq('id', threadId);
-
-        Laminar.setSpanOutput({ assistantContent, responseId });
 
         res.write(`data: ${JSON.stringify({ type: 'done', title: updateData.title })}\n\n`);
         res.end();

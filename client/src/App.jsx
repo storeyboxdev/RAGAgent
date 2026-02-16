@@ -1,9 +1,13 @@
+import { useState } from 'react';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import AuthPage from '@/pages/AuthPage';
 import ChatPage from '@/pages/ChatPage';
+import IngestionPage from '@/pages/IngestionPage';
+import AppLayout from '@/components/AppLayout';
 
 function AppContent() {
   const { user, loading } = useAuth();
+  const [view, setView] = useState('chat');
 
   if (loading) {
     return (
@@ -13,7 +17,14 @@ function AppContent() {
     );
   }
 
-  return user ? <ChatPage /> : <AuthPage />;
+  if (!user) return <AuthPage />;
+
+  return (
+    <AppLayout view={view} onViewChange={setView}>
+      {view === 'chat' && <ChatPage />}
+      {view === 'documents' && <IngestionPage />}
+    </AppLayout>
+  );
 }
 
 function App() {
