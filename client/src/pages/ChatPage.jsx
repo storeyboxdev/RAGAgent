@@ -73,12 +73,13 @@ export default function ChatPage() {
               { type: 'tool_call', name: data.name, arguments: data.arguments },
             ]);
           } else if (data.type === 'tool_result') {
-            // Update the last tool call with results
+            // Update the last tool call with results (generic merge)
             setMessages((prev) => {
               const updated = [...prev];
               for (let i = updated.length - 1; i >= 0; i--) {
-                if (updated[i].type === 'tool_call' && updated[i].name === data.name && !updated[i].chunks) {
-                  updated[i] = { ...updated[i], chunks: data.chunks, search_mode: data.search_mode, reranked: data.reranked };
+                if (updated[i].type === 'tool_call' && updated[i].name === data.name && !updated[i].completed) {
+                  const { type, name, ...resultData } = data;
+                  updated[i] = { ...updated[i], ...resultData, completed: true };
                   break;
                 }
               }

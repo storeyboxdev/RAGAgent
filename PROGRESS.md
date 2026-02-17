@@ -80,6 +80,19 @@ Track your progress through the masterclass. Update this file as you complete mo
 - [x] Task 9: Integration Tests — tool_result SSE event includes search_mode and reranked fields
 - [x] Task 10: Update PROGRESS.md
 
+### Module 7: Additional Tools (Text-to-SQL + Web Search)
+[x]
+- [x] Task 1: Database Migration — read-only query RPC function (execute_readonly_query)
+- [x] Task 2: SQL Query Validation Library — validateAndRewriteQuery, getSchemaDescription, executeQuery
+- [x] Task 3: Web Search Client Library — isWebSearchEnabled, webSearch (Tavily + SearXNG providers)
+- [x] Task 4: Chat Route Multi-Tool Agent — dynamic system prompt, query_database tool, web_search tool, dynamic tools array
+- [x] Task 5: Environment Config — WEB_SEARCH_ENABLED, WEB_SEARCH_PROVIDER, TAVILY_API_KEY, SEARXNG_URL
+- [x] Task 6: Frontend Updates — ToolCallIndicator refactored with SearchToolView, SqlToolView, WebSearchToolView; ChatPage generic tool_result handler
+- [x] Task 7: Unit Tests — SQL query validation (21 tests)
+- [x] Task 8: Unit Tests — Web search client (9 tests)
+- [x] Task 9: Integration Tests — query_database and web_search SSE events, tool registration (6 new tests)
+- [x] Task 10: Update PROGRESS.md
+
 ### Regression Test Suite
 [x]
 - [x] Test infrastructure (vitest + supertest, app.js extraction)

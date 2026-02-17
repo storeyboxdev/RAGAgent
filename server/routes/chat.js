@@ -5,17 +5,40 @@ import { z } from 'zod';
 import { createSupabaseClient } from '../lib/supabase.js';
 import { getLlmModel } from '../lib/lmstudio.js';
 import { searchDocuments } from '../lib/retrieval.js';
+import { getSchemaDescription, executeQuery } from '../lib/sql-query.js';
+import { isWebSearchEnabled, webSearch } from '../lib/web-search.js';
 
 const router = Router();
 
-const SYSTEM_PROMPT = `You are a helpful assistant that answers questions using the user's uploaded documents.
+function buildSystemPrompt() {
+  const schemaDesc = getSchemaDescription();
+  const webSearchEnabled = isWebSearchEnabled();
 
-IMPORTANT RULES:
-1. When the user asks a question, use the search_documents tool to find relevant information. Call it with just the "query" parameter — only add "metadata_filter" if the user explicitly mentions a document type or topic to filter by.
-2. After receiving search results, answer ONLY based on the actual text returned. Do NOT add information from your own knowledge.
-3. Quote relevant passages directly from the retrieved text to support your answer.
-4. If the search results don't contain enough information to answer, say so — do not make up an answer.
-5. Keep your response concise and directly answer the question asked.`;
+  let prompt = `You are a helpful assistant that answers questions using the user's uploaded documents.
+
+RULES:
+1. Use search_documents to find information in documents. Only pass "query" — only add "topic" or "document_type" if the user explicitly mentions them.
+2. Answer ONLY based on retrieved text. Quote relevant passages. If results are insufficient, say so.
+3. Use query_database for analytical questions (how many documents, list filenames, statistics). Write SELECT queries only.
+
+TOOL ROUTING:
+- Document content questions → search_documents
+- Collection/analytical questions (counts, lists, stats) → query_database
+
+DATABASE SCHEMA:
+${schemaDesc}
+
+Results limited to 50 rows.`;
+
+  if (webSearchEnabled) {
+    prompt += `
+
+WEB SEARCH TOOL:
+If the user's documents don't contain the answer and the question is about general knowledge, current events, or topics not covered in their documents, use the web_search tool as a fallback. Always cite the source URLs when using web search results.`;
+  }
+
+  return prompt;
+}
 
 // POST /api/chat — SSE streaming chat
 router.post('/', async (req, res) => {
@@ -57,7 +80,7 @@ router.post('/', async (req, res) => {
         // Build messages array from thread history (user + assistant only)
         const currentMessages = thread.messages || [];
         const messages = [
-          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'system', content: buildSystemPrompt() },
           ...currentMessages,
           { role: 'user', content: message },
         ];
@@ -71,15 +94,15 @@ router.post('/', async (req, res) => {
           description: 'Search the user\'s uploaded documents for relevant information. Use this when the user asks about content that might be in their documents. You can optionally filter by metadata to narrow results.',
           parameters: {
             query: z.string().describe('The search query to find relevant document chunks'),
-            metadata_filter: z.object({
-              topic: z.string().optional().describe('Filter by topic (partial match)'),
-              document_type: z.enum([
-                'article', 'report', 'tutorial', 'documentation',
-                'email', 'memo', 'legal', 'academic', 'other',
-              ]).optional().describe('Filter by document type'),
-            }).optional().describe('Optional metadata filters to narrow search'),
+            topic: z.string().optional().describe('Optional: filter by topic (partial match)'),
+            document_type: z.enum([
+              'article', 'report', 'tutorial', 'documentation',
+              'email', 'memo', 'legal', 'academic', 'other',
+            ]).optional().describe('Optional: filter by document type'),
           },
-          implementation: async ({ query, metadata_filter }) => {
+          implementation: async ({ query, topic, document_type }) => {
+            // Reconstruct metadata_filter from flat params for the retrieval layer
+            const metadata_filter = (topic || document_type) ? { topic, document_type } : undefined;
             return observe(
               { name: 'tool:search_documents', input: { query, metadata_filter } },
               async () => {
@@ -98,6 +121,61 @@ router.post('/', async (req, res) => {
           },
         });
 
+        // Define query_database tool
+        const queryDatabaseTool = tool({
+          name: 'query_database',
+          description: 'Run a SQL query against the user\'s document collection. Use this for analytical questions like counting documents, listing filenames, finding documents by metadata, or aggregating information across the collection.',
+          parameters: {
+            sql: z.string().describe('A SELECT SQL query to run against the documents and document_chunks tables'),
+          },
+          implementation: async ({ sql }) => {
+            return observe(
+              { name: 'tool:query_database', input: { sql } },
+              async () => {
+                res.write(`data: ${JSON.stringify({ type: 'tool_call', name: 'query_database', arguments: { sql } })}\n\n`);
+
+                try {
+                  const result = await executeQuery(sql, userId);
+                  res.write(`data: ${JSON.stringify({ type: 'tool_result', name: 'query_database', rows: result.rows, rowCount: result.rowCount, sql: result.sql })}\n\n`);
+                  return JSON.stringify(result);
+                } catch (error) {
+                  const errorResult = { error: error.message, rows: [], rowCount: 0 };
+                  res.write(`data: ${JSON.stringify({ type: 'tool_result', name: 'query_database', ...errorResult })}\n\n`);
+                  return JSON.stringify(errorResult);
+                }
+              }
+            );
+          },
+        });
+
+        // Build dynamic tools array
+        const tools = [searchTool, queryDatabaseTool];
+
+        // Add web_search tool only when enabled
+        if (isWebSearchEnabled()) {
+          const webSearchTool = tool({
+            name: 'web_search',
+            description: 'Search the web for information not found in the user\'s documents. Use this as a fallback when document search doesn\'t have the answer, especially for general knowledge or current events.',
+            parameters: {
+              query: z.string().describe('The search query to find information on the web'),
+            },
+            implementation: async ({ query }) => {
+              return observe(
+                { name: 'tool:web_search', input: { query } },
+                async () => {
+                  res.write(`data: ${JSON.stringify({ type: 'tool_call', name: 'web_search', arguments: { query } })}\n\n`);
+
+                  const results = await webSearch(query);
+                  res.write(`data: ${JSON.stringify({ type: 'tool_result', name: 'web_search', results })}\n\n`);
+
+                  return JSON.stringify(results);
+                }
+              );
+            },
+          });
+          tools.push(webSearchTool);
+        }
+
         // Get the LLM model handle
         const model = await getLlmModel();
 
@@ -105,12 +183,34 @@ router.post('/', async (req, res) => {
         let assistantContent = '';
 
         // Run .act() — handles tool call loop automatically
-        await model.act(messages, [searchTool], {
+        await model.act(messages, tools, {
           onPredictionFragment: (fragment) => {
             if (fragment.content) {
               assistantContent += fragment.content;
               res.write(`data: ${JSON.stringify({ type: 'text_delta', content: fragment.content })}\n\n`);
             }
+          },
+          // Gracefully handle malformed tool calls instead of crashing
+          handleInvalidToolRequest: (error, request) => {
+            const toolName = request?.name || 'unknown';
+            console.warn(`Invalid tool call request (${toolName}):`, error.message);
+
+            // Trace the failed attempt so it appears in Laminar
+            observe(
+              { name: `tool:${toolName}:failed`, input: { error: error.message, rawContent: error.rawContent } },
+              () => {
+                Laminar.setSpanOutput({ error: error.message });
+              }
+            );
+
+            if (request) {
+              // Tool was identified but args failed to parse — return error to model
+              res.write(`data: ${JSON.stringify({ type: 'tool_call', name: toolName, arguments: request.args || {} })}\n\n`);
+              res.write(`data: ${JSON.stringify({ type: 'tool_result', name: toolName, error: `Tool call failed: ${error.message}` })}\n\n`);
+              return `Tool call failed: ${error.message}. Please try again with simpler parameters (avoid nested objects like metadata_filter).`;
+            }
+            // Complete parse failure — SDK can't accept a return value here,
+            // so return undefined. The model will start a fresh prediction round.
           },
           temperature: 0.7,
           maxPredictionRounds: 5,
@@ -164,4 +264,5 @@ router.get('/:threadId/messages', async (req, res) => {
   res.json(thread.messages || []);
 });
 
+export { buildSystemPrompt };
 export default router;

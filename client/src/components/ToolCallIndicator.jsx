@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Search, ChevronDown, ChevronRight } from 'lucide-react';
+import { Search, Database, Globe, ChevronDown, ChevronRight } from 'lucide-react';
 
 function SearchModeBadge({ searchMode, reranked }) {
   if (!searchMode) return null;
@@ -14,20 +14,18 @@ function SearchModeBadge({ searchMode, reranked }) {
   );
 }
 
-export default function ToolCallIndicator({ toolCall }) {
-  const [expanded, setExpanded] = useState(false);
-
+function SearchToolView({ toolCall, expanded, onToggle }) {
   return (
-    <div className="my-2 mx-auto max-w-3xl">
+    <>
       <button
-        onClick={() => setExpanded(!expanded)}
+        onClick={onToggle}
         className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
       >
         <Search className="h-3 w-3" />
         <span>
-          {toolCall.chunks
+          {toolCall.completed
             ? <>
-                Found {toolCall.chunks.length} relevant chunk{toolCall.chunks.length !== 1 ? 's' : ''}
+                Found {toolCall.chunks?.length || 0} relevant chunk{toolCall.chunks?.length !== 1 ? 's' : ''}
                 <SearchModeBadge searchMode={toolCall.search_mode} reranked={toolCall.reranked} />
               </>
             : <>
@@ -39,7 +37,7 @@ export default function ToolCallIndicator({ toolCall }) {
                 )}
               </>}
         </span>
-        {toolCall.chunks && (
+        {toolCall.completed && (
           expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />
         )}
       </button>
@@ -56,6 +54,117 @@ export default function ToolCallIndicator({ toolCall }) {
             </div>
           ))}
         </div>
+      )}
+    </>
+  );
+}
+
+function SqlToolView({ toolCall, expanded, onToggle }) {
+  return (
+    <>
+      <button
+        onClick={onToggle}
+        className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+      >
+        <Database className="h-3 w-3" />
+        <span>
+          {toolCall.error
+            ? <span className="text-destructive">Query error: {toolCall.error}</span>
+            : toolCall.completed
+              ? `Returned ${toolCall.rowCount} row${toolCall.rowCount !== 1 ? 's' : ''}`
+              : 'Querying database...'}
+        </span>
+        {toolCall.completed && (
+          expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />
+        )}
+      </button>
+      {expanded && toolCall.completed && (
+        <div className="mt-2 pl-5 space-y-2">
+          {toolCall.sql && (
+            <pre className="text-xs bg-muted/50 rounded p-2 border overflow-x-auto">
+              <code>{toolCall.sql}</code>
+            </pre>
+          )}
+          {toolCall.rows && toolCall.rows.length > 0 && (
+            <div className="text-xs overflow-x-auto border rounded">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-muted/50">
+                    {Object.keys(toolCall.rows[0]).map((key) => (
+                      <th key={key} className="px-2 py-1 text-left font-medium text-muted-foreground">{key}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {toolCall.rows.map((row, i) => (
+                    <tr key={i} className="border-t">
+                      {Object.values(row).map((val, j) => (
+                        <td key={j} className="px-2 py-1 text-muted-foreground">{String(val)}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
+function WebSearchToolView({ toolCall, expanded, onToggle }) {
+  return (
+    <>
+      <button
+        onClick={onToggle}
+        className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+      >
+        <Globe className="h-3 w-3" />
+        <span>
+          {toolCall.completed
+            ? `Found ${toolCall.results?.length || 0} web result${toolCall.results?.length !== 1 ? 's' : ''}`
+            : 'Searching the web...'}
+        </span>
+        {toolCall.completed && (
+          expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />
+        )}
+      </button>
+      {expanded && toolCall.results && (
+        <div className="mt-2 space-y-2 pl-5">
+          {toolCall.results.map((result, i) => (
+            <div key={i} className="text-xs bg-muted/50 rounded p-2 border">
+              <a
+                href={result.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary hover:underline font-medium"
+              >
+                {result.title}
+              </a>
+              <p className="text-muted-foreground mt-1">{result.snippet}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+export default function ToolCallIndicator({ toolCall }) {
+  const [expanded, setExpanded] = useState(false);
+  const toggle = () => setExpanded(!expanded);
+
+  const viewProps = { toolCall, expanded, onToggle: toggle };
+
+  return (
+    <div className="my-2 mx-auto max-w-3xl">
+      {toolCall.name === 'query_database' ? (
+        <SqlToolView {...viewProps} />
+      ) : toolCall.name === 'web_search' ? (
+        <WebSearchToolView {...viewProps} />
+      ) : (
+        <SearchToolView {...viewProps} />
       )}
     </div>
   );
