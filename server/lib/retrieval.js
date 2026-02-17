@@ -1,3 +1,4 @@
+import { observe } from '@lmnr-ai/lmnr';
 import { supabaseAdmin } from './supabase.js';
 import { generateEmbedding } from './embeddings.js';
 import { keywordSearch } from './keyword-search.js';
@@ -62,68 +63,109 @@ export function reciprocalRankFusion(rankedLists, k = 60) {
  * Optionally rerank results with LLM scoring.
  */
 export async function searchDocuments(query, userId, { limit = 5, threshold = 0.5, metadata_filter } = {}) {
-  let filterDocumentIds = null;
+  return observe(
+    { name: 'searchDocuments', input: { query, searchMode: SEARCH_MODE, rerankEnabled: RERANK_ENABLED } },
+    async () => {
+      let filterDocumentIds = null;
 
-  // If metadata_filter provided, find matching document IDs first
-  if (metadata_filter && Object.keys(metadata_filter).length > 0) {
-    try {
-      let docQuery = supabaseAdmin
-        .from('documents')
-        .select('id')
-        .eq('user_id', userId)
-        .eq('status', 'completed')
-        .not('metadata', 'is', null);
+      // If metadata_filter provided, find matching document IDs first
+      if (metadata_filter && Object.keys(metadata_filter).length > 0) {
+        try {
+          let docQuery = supabaseAdmin
+            .from('documents')
+            .select('id')
+            .eq('user_id', userId)
+            .eq('status', 'completed')
+            .not('metadata', 'is', null);
 
-      if (metadata_filter.topic) {
-        docQuery = docQuery.ilike('metadata->>topic', `%${metadata_filter.topic}%`);
+          if (metadata_filter.topic) {
+            docQuery = docQuery.ilike('metadata->>topic', `%${metadata_filter.topic}%`);
+          }
+          if (metadata_filter.document_type) {
+            docQuery = docQuery.eq('metadata->>document_type', metadata_filter.document_type);
+          }
+
+          const { data: matchingDocs, error: filterError } = await docQuery;
+
+          if (filterError) {
+            console.error('Metadata filter error:', filterError);
+          } else if (matchingDocs && matchingDocs.length === 0) {
+            return [];
+          } else if (matchingDocs) {
+            filterDocumentIds = matchingDocs.map((d) => d.id);
+          }
+        } catch (err) {
+          console.error('Metadata filter error:', err);
+        }
       }
-      if (metadata_filter.document_type) {
-        docQuery = docQuery.eq('metadata->>document_type', metadata_filter.document_type);
+
+      const fetchLimit = RERANK_ENABLED ? limit * 3 : limit;
+      let results;
+
+      if (SEARCH_MODE === 'keyword') {
+        results = await observe(
+          { name: 'keyword_search', input: { query } },
+          async () => {
+            const r = await keywordSearch(query, userId, { limit: fetchLimit, filterDocumentIds });
+            return r;
+          }
+        );
+      } else if (SEARCH_MODE === 'vector') {
+        const embedding = await generateEmbedding(query);
+        results = await observe(
+          { name: 'vector_search', input: { query } },
+          async () => {
+            const r = await vectorSearch(embedding, userId, { limit: fetchLimit, threshold, filterDocumentIds });
+            return r;
+          }
+        );
+      } else {
+        // hybrid mode (default)
+        const embedding = await generateEmbedding(query);
+        const [vectorResults, keywordResults] = await Promise.all([
+          observe(
+            { name: 'vector_search', input: { query } },
+            async () => {
+              const r = await vectorSearch(embedding, userId, { limit: fetchLimit, threshold, filterDocumentIds });
+              return r;
+            }
+          ),
+          observe(
+            { name: 'keyword_search', input: { query } },
+            async () => {
+              const r = await keywordSearch(query, userId, { limit: fetchLimit, filterDocumentIds });
+              return r;
+            }
+          ),
+        ]);
+        results = await observe(
+          { name: 'rrf_fusion', input: { vectorCount: vectorResults.length, keywordCount: keywordResults.length } },
+          async () => {
+            const fused = reciprocalRankFusion([vectorResults, keywordResults]);
+            return fused;
+          }
+        );
+        results = results.slice(0, fetchLimit);
       }
 
-      const { data: matchingDocs, error: filterError } = await docQuery;
-
-      if (filterError) {
-        console.error('Metadata filter error:', filterError);
-      } else if (matchingDocs && matchingDocs.length === 0) {
-        return [];
-      } else if (matchingDocs) {
-        filterDocumentIds = matchingDocs.map((d) => d.id);
+      // Rerank if enabled
+      if (RERANK_ENABLED && results.length > 0) {
+        results = await observe(
+          { name: 'rerank', input: { chunkCount: results.length } },
+          async () => {
+            const r = await rerankChunks(query, results, limit);
+            return r;
+          }
+        );
+        results.forEach((r) => { r.similarity = r.rerank_score; });
+      } else {
+        results = results.slice(0, limit);
       }
-    } catch (err) {
-      console.error('Metadata filter error:', err);
+
+      // Attach search metadata
+      results._searchMeta = { search_mode: SEARCH_MODE, reranked: RERANK_ENABLED };
+
+      return results;
     }
-  }
-
-  const fetchLimit = RERANK_ENABLED ? limit * 3 : limit;
-  let results;
-
-  if (SEARCH_MODE === 'keyword') {
-    results = await keywordSearch(query, userId, { limit: fetchLimit, filterDocumentIds });
-  } else if (SEARCH_MODE === 'vector') {
-    const embedding = await generateEmbedding(query);
-    results = await vectorSearch(embedding, userId, { limit: fetchLimit, threshold, filterDocumentIds });
-  } else {
-    // hybrid mode (default)
-    const embedding = await generateEmbedding(query);
-    const [vectorResults, keywordResults] = await Promise.all([
-      vectorSearch(embedding, userId, { limit: fetchLimit, threshold, filterDocumentIds }),
-      keywordSearch(query, userId, { limit: fetchLimit, filterDocumentIds }),
-    ]);
-    results = reciprocalRankFusion([vectorResults, keywordResults]);
-    results = results.slice(0, fetchLimit);
-  }
-
-  // Rerank if enabled
-  if (RERANK_ENABLED && results.length > 0) {
-    results = await rerankChunks(query, results, limit);
-    results.forEach((r) => { r.similarity = r.rerank_score; });
-  } else {
-    results = results.slice(0, limit);
-  }
-
-  // Attach search metadata
-  results._searchMeta = { search_mode: SEARCH_MODE, reranked: RERANK_ENABLED };
-
-  return results;
+  );
 }

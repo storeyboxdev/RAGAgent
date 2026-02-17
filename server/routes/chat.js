@@ -80,16 +80,21 @@ router.post('/', async (req, res) => {
             }).optional().describe('Optional metadata filters to narrow search'),
           },
           implementation: async ({ query, metadata_filter }) => {
-            // Emit tool_call SSE event
-            res.write(`data: ${JSON.stringify({ type: 'tool_call', name: 'search_documents', arguments: { query, metadata_filter } })}\n\n`);
+            return observe(
+              { name: 'tool:search_documents', input: { query, metadata_filter } },
+              async () => {
+                // Emit tool_call SSE event
+                res.write(`data: ${JSON.stringify({ type: 'tool_call', name: 'search_documents', arguments: { query, metadata_filter } })}\n\n`);
 
-            const chunks = await searchDocuments(query, userId, { metadata_filter });
-            const searchMeta = chunks._searchMeta || { search_mode: 'vector', reranked: false };
+                const chunks = await searchDocuments(query, userId, { metadata_filter });
+                const searchMeta = chunks._searchMeta || { search_mode: 'vector', reranked: false };
 
-            // Emit tool_result SSE event
-            res.write(`data: ${JSON.stringify({ type: 'tool_result', name: 'search_documents', chunks, search_mode: searchMeta.search_mode, reranked: searchMeta.reranked })}\n\n`);
+                // Emit tool_result SSE event
+                res.write(`data: ${JSON.stringify({ type: 'tool_result', name: 'search_documents', chunks, search_mode: searchMeta.search_mode, reranked: searchMeta.reranked })}\n\n`);
 
-            return JSON.stringify(chunks);
+                return JSON.stringify(chunks);
+              }
+            );
           },
         });
 

@@ -1,3 +1,4 @@
+import { observe } from '@lmnr-ai/lmnr';
 import { z } from 'zod';
 import { getLlmModel } from './lmstudio.js';
 
@@ -22,56 +23,63 @@ Query: `;
  * Returns chunks sorted by rerank_score descending, sliced to limit.
  */
 export async function rerankChunks(query, chunks, limit = 5) {
-  if (!chunks || chunks.length === 0) return [];
+  return observe(
+    { name: 'rerank_chunks', input: { query, chunkCount: chunks?.length ?? 0, limit } },
+    async () => {
+      if (!chunks || chunks.length === 0) return [];
 
-  const model = await getLlmModel();
+      const model = await getLlmModel();
 
-  const scored = await Promise.all(
-    chunks.map(async (chunk) => {
-      try {
-        const truncatedContent = chunk.content.slice(0, MAX_CHUNK_CHARS);
-        const prompt = RERANK_PROMPT + query + '\n\nDocument chunk:\n' + truncatedContent;
+      const scored = await Promise.all(
+        chunks.map(async (chunk) => {
+          try {
+            const truncatedContent = chunk.content.slice(0, MAX_CHUNK_CHARS);
+            const prompt = RERANK_PROMPT + query + '\n\nDocument chunk:\n' + truncatedContent;
 
-        const prediction = model.respond(
-          [{ role: 'user', content: prompt }],
-          { temperature: 0.0 }
-        );
+            const prediction = model.respond(
+              [{ role: 'user', content: prompt }],
+              { temperature: 0.0 }
+            );
 
-        const response = await Promise.race([
-          prediction,
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Rerank scoring timed out')), RERANK_TIMEOUT_MS)
-          ),
-        ]);
+            const response = await Promise.race([
+              prediction,
+              new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('Rerank scoring timed out')), RERANK_TIMEOUT_MS)
+              ),
+            ]);
 
-        let rawText;
-        if (typeof response === 'string') {
-          rawText = response;
-        } else if (response?.content != null) {
-          rawText = response.content;
-        } else if (response?.text != null) {
-          rawText = response.text;
-        } else {
-          rawText = String(response);
-        }
+            let rawText;
+            if (typeof response === 'string') {
+              rawText = response;
+            } else if (response?.content != null) {
+              rawText = response.content;
+            } else if (response?.text != null) {
+              rawText = response.text;
+            } else {
+              rawText = String(response);
+            }
 
-        // Strip <think>...</think> blocks
-        rawText = rawText.replace(/<think>[\s\S]*?<\/think>\s*/g, '');
-        // Strip markdown code fences
-        rawText = rawText.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '');
+            // Strip <think>...</think> blocks
+            rawText = rawText.replace(/<think>[\s\S]*?<\/think>\s*/g, '');
+            // Strip markdown code fences
+            rawText = rawText.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '');
 
-        const parsed = JSON.parse(rawText);
-        const { score } = ScoreSchema.parse(parsed);
+            const parsed = JSON.parse(rawText);
+            const { score } = ScoreSchema.parse(parsed);
 
-        return { ...chunk, rerank_score: score };
-      } catch (err) {
-        console.error('Rerank scoring failed for chunk:', err.message);
-        return { ...chunk, rerank_score: 0 };
-      }
-    })
+            return { ...chunk, rerank_score: score };
+          } catch (err) {
+            console.error('Rerank scoring failed for chunk:', err.message);
+            return { ...chunk, rerank_score: 0 };
+          }
+        })
+      );
+
+      const results = scored
+        .sort((a, b) => b.rerank_score - a.rerank_score)
+        .slice(0, limit);
+
+      return results;
+    }
   );
-
-  return scored
-    .sort((a, b) => b.rerank_score - a.rerank_score)
-    .slice(0, limit);
 }
