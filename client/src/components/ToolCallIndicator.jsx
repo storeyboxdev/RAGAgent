@@ -14,7 +14,14 @@ export default function ToolCallIndicator({ toolCall }) {
         <span>
           {toolCall.chunks
             ? `Found ${toolCall.chunks.length} relevant chunk${toolCall.chunks.length !== 1 ? 's' : ''}`
-            : 'Searching documents...'}
+            : <>
+                Searching documents...
+                {toolCall.arguments?.metadata_filter && (
+                  <span className="ml-1 text-muted-foreground/70">
+                    ({Object.entries(toolCall.arguments.metadata_filter).map(([k, v]) => `${k}: ${v}`).join(', ')})
+                  </span>
+                )}
+              </>}
         </span>
         {toolCall.chunks && (
           expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />

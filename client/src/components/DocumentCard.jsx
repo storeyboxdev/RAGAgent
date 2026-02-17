@@ -7,6 +7,7 @@ import { apiFetch } from '@/lib/api';
 const statusVariant = {
   pending: 'secondary',
   processing: 'outline',
+  extracting: 'outline',
   completed: 'default',
   error: 'destructive',
   duplicate: 'secondary',
@@ -27,7 +28,7 @@ export default function DocumentCard({ document, onDeleted }) {
         <p className="text-sm font-medium truncate">{document.filename}</p>
         <div className="flex items-center gap-2 mt-1">
           <Badge variant={statusVariant[document.status] || 'secondary'} className="gap-1">
-            {document.status === 'processing' && <Loader2 className="h-3 w-3 animate-spin" />}
+            {(document.status === 'processing' || document.status === 'extracting') && <Loader2 className="h-3 w-3 animate-spin" />}
             {document.status}
           </Badge>
           {document.chunk_count > 0 && (
@@ -37,6 +38,12 @@ export default function DocumentCard({ document, onDeleted }) {
             <span className="text-xs text-destructive truncate">{document.error_message}</span>
           )}
         </div>
+        {document.metadata && (
+          <div className="flex items-center gap-2 mt-1">
+            <Badge variant="secondary" className="text-xs">{document.metadata.document_type}</Badge>
+            <span className="text-xs text-muted-foreground truncate">{document.metadata.topic}</span>
+          </div>
+        )}
       </div>
       <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={handleDelete}>
         <Trash2 className="h-4 w-4" />

@@ -4,6 +4,7 @@ import { createSupabaseClient, supabaseAdmin } from '../lib/supabase.js';
 import { chunkText } from '../lib/chunking.js';
 import { generateEmbeddings } from '../lib/embeddings.js';
 import { hashBuffer, hashString } from '../lib/hashing.js';
+import { extractMetadata } from '../lib/metadata.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -194,11 +195,33 @@ async function processDocument(docId, userId, storagePath) {
 
     if (chunkError) throw new Error(`Chunk insert failed: ${chunkError.message}`);
 
-    // Update status to completed
+    console.log(`[ingestion] Chunks stored for ${docId}, starting metadata extraction...`);
+
+    // Extract metadata via LLM (non-fatal)
     await supabaseAdmin
       .from('documents')
-      .update({ status: 'completed', chunk_count: chunks.length })
+      .update({ status: 'extracting', chunk_count: chunks.length })
       .eq('id', docId);
+
+    let metadata = null;
+    try {
+      metadata = await extractMetadata(text);
+      console.log(`[ingestion] Metadata extracted for ${docId}:`, metadata);
+    } catch (err) {
+      console.error(`Metadata extraction failed for document ${docId}:`, err);
+    }
+
+    // Update status to completed
+    const { error: completedError } = await supabaseAdmin
+      .from('documents')
+      .update({ status: 'completed', chunk_count: chunks.length, metadata })
+      .eq('id', docId);
+
+    if (completedError) {
+      console.error(`[ingestion] Failed to set completed status for ${docId}:`, completedError);
+    } else {
+      console.log(`[ingestion] Document ${docId} completed`);
+    }
   } catch (error) {
     console.error(`Processing error for document ${docId}:`, error);
     await supabaseAdmin

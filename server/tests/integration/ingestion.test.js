@@ -62,6 +62,11 @@ vi.mock('../../lib/retrieval.js', () => ({
   searchDocuments: vi.fn(),
 }));
 
+const mockExtractMetadata = vi.fn();
+vi.mock('../../lib/metadata.js', () => ({
+  extractMetadata: (...args) => mockExtractMetadata(...args),
+}));
+
 const { default: request } = await import('supertest');
 const { default: app } = await import('../../app.js');
 
@@ -243,6 +248,7 @@ describe('Ingestion API', () => {
       const adminChains = [
         createQueryChain({ data: null, error: null }), // status → processing
         chunkInsertChain, // chunk insert
+        createQueryChain({ data: null, error: null }), // status → extracting
         createQueryChain({ data: null, error: null }), // status → completed
       ];
       let adminCallIndex = 0;
@@ -251,6 +257,8 @@ describe('Ingestion API', () => {
         adminCallIndex++;
         return chain;
       });
+
+      mockExtractMetadata.mockResolvedValue({ topic: 'test' });
 
       await request(app)
         .post('/api/ingestion/upload')
@@ -264,6 +272,128 @@ describe('Ingestion API', () => {
         expect.arrayContaining([
           expect.objectContaining({ content_hash: expect.any(String) }),
         ])
+      );
+    });
+  });
+
+  describe('Metadata Extraction', () => {
+    it('calls extractMetadata and includes metadata in final update', async () => {
+      const doc = { id: 'doc-1', filename: 'test.txt', status: 'pending' };
+      const metadata = { topic: 'Testing', document_type: 'tutorial', key_entities: [], summary: 'A test', language: 'English' };
+
+      const hashCheckChain = createQueryChain({ data: null, error: null });
+      const nameCheckChain = createQueryChain({ data: null, error: null });
+      const insertChain = createQueryChain({ data: doc, error: null });
+      mockUserFromSequence([hashCheckChain, nameCheckChain, insertChain]);
+
+      // Admin calls: processing, chunk insert, extracting, completed
+      const completedChain = createQueryChain({ data: null, error: null });
+      const adminChains = [
+        createQueryChain({ data: null, error: null }), // status → processing
+        createQueryChain({ data: null, error: null }), // chunk insert
+        createQueryChain({ data: null, error: null }), // status → extracting
+        completedChain, // status → completed
+      ];
+      let adminCallIndex = 0;
+      mockAdminFrom.mockImplementation(() => {
+        const chain = adminChains[adminCallIndex] || adminChains[adminChains.length - 1];
+        adminCallIndex++;
+        return chain;
+      });
+
+      mockExtractMetadata.mockResolvedValue(metadata);
+
+      await request(app)
+        .post('/api/ingestion/upload')
+        .attach('file', Buffer.from('Hello world'), 'test.txt');
+
+      // Wait for background processing
+      await new Promise((r) => setTimeout(r, 100));
+
+      expect(mockExtractMetadata).toHaveBeenCalled();
+      // The final update should include metadata
+      expect(completedChain.update).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'completed', metadata })
+      );
+    });
+
+    it('extraction failure is non-fatal — document still completes with metadata: null', async () => {
+      const doc = { id: 'doc-1', filename: 'test.txt', status: 'pending' };
+
+      const hashCheckChain = createQueryChain({ data: null, error: null });
+      const nameCheckChain = createQueryChain({ data: null, error: null });
+      const insertChain = createQueryChain({ data: doc, error: null });
+      mockUserFromSequence([hashCheckChain, nameCheckChain, insertChain]);
+
+      // Admin calls: processing, chunk insert, extracting, completed
+      const completedChain = createQueryChain({ data: null, error: null });
+      const adminChains = [
+        createQueryChain({ data: null, error: null }), // status → processing
+        createQueryChain({ data: null, error: null }), // chunk insert
+        createQueryChain({ data: null, error: null }), // status → extracting
+        completedChain, // status → completed
+      ];
+      let adminCallIndex = 0;
+      mockAdminFrom.mockImplementation(() => {
+        const chain = adminChains[adminCallIndex] || adminChains[adminChains.length - 1];
+        adminCallIndex++;
+        return chain;
+      });
+
+      mockExtractMetadata.mockRejectedValue(new Error('LLM failed'));
+
+      await request(app)
+        .post('/api/ingestion/upload')
+        .attach('file', Buffer.from('Hello world'), 'test.txt');
+
+      // Wait for background processing
+      await new Promise((r) => setTimeout(r, 100));
+
+      // Document should still complete with metadata: null
+      expect(completedChain.update).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'completed', metadata: null })
+      );
+    });
+
+    it('status transitions include extracting', async () => {
+      const doc = { id: 'doc-1', filename: 'test.txt', status: 'pending' };
+
+      const hashCheckChain = createQueryChain({ data: null, error: null });
+      const nameCheckChain = createQueryChain({ data: null, error: null });
+      const insertChain = createQueryChain({ data: doc, error: null });
+      mockUserFromSequence([hashCheckChain, nameCheckChain, insertChain]);
+
+      // Admin calls: processing, chunk insert, extracting, completed
+      const processingChain = createQueryChain({ data: null, error: null });
+      const extractingChain = createQueryChain({ data: null, error: null });
+      const adminChains = [
+        processingChain, // status → processing
+        createQueryChain({ data: null, error: null }), // chunk insert
+        extractingChain, // status → extracting
+        createQueryChain({ data: null, error: null }), // status → completed
+      ];
+      let adminCallIndex = 0;
+      mockAdminFrom.mockImplementation(() => {
+        const chain = adminChains[adminCallIndex] || adminChains[adminChains.length - 1];
+        adminCallIndex++;
+        return chain;
+      });
+
+      mockExtractMetadata.mockResolvedValue({ topic: 'test' });
+
+      await request(app)
+        .post('/api/ingestion/upload')
+        .attach('file', Buffer.from('Hello world'), 'test.txt');
+
+      // Wait for background processing
+      await new Promise((r) => setTimeout(r, 100));
+
+      // Verify status transitions
+      expect(processingChain.update).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'processing' })
+      );
+      expect(extractingChain.update).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'extracting' })
       );
     });
   });

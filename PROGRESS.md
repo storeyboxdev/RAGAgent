@@ -46,6 +46,17 @@ Track your progress through the masterclass. Update this file as you complete mo
 - [x] Task 6: Frontend — duplicate status badge, duplicate alert on upload
 - [x] Task 7: Full Test Suite — all 44 tests passing
 
+### Module 4: Metadata Extraction
+[x]
+- [x] Task 1: Database Migration — metadata JSONB column, extracting status, filter_document_ids param on RPC
+- [x] Task 2: Metadata Schema + Extraction Library — Zod schema, extractMetadata with LLM
+- [x] Task 3: Ingestion Pipeline Update — extracting status step, non-fatal metadata extraction
+- [x] Task 4: Retrieval Enhancement — metadata-filtered search with JSONB operators
+- [x] Task 5: Chat Tool Update — metadata_filter param on search_documents tool
+- [x] Task 6: Frontend Updates — extracting status badge/spinner, metadata display, filter indicator
+- [x] Task 7: Tests — unit tests for metadata, integration tests for extraction in pipeline
+- [x] Task 8: Update PROGRESS.md
+
 ### Regression Test Suite
 [x]
 - [x] Test infrastructure (vitest + supertest, app.js extraction)

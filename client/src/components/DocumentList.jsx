@@ -24,7 +24,7 @@ export default function DocumentList({ refreshKey }) {
   // Poll while any document is pending/processing
   useEffect(() => {
     const hasInProgress = documents.some(
-      (d) => d.status === 'pending' || d.status === 'processing'
+      (d) => d.status === 'pending' || d.status === 'processing' || d.status === 'extracting'
     );
 
     if (hasInProgress && !pollRef.current) {

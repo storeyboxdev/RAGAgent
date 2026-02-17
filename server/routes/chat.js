@@ -8,7 +8,9 @@ import { searchDocuments } from '../lib/retrieval.js';
 
 const router = Router();
 
-const SYSTEM_PROMPT = `You are a helpful assistant. You have access to a document search tool that can find relevant information from the user's uploaded documents. When the user asks a question that might be answered by their documents, use the search_documents tool to find relevant information. Always cite information that comes from documents.`;
+const SYSTEM_PROMPT = `You are a helpful assistant. You have access to a document search tool that can find relevant information from the user's uploaded documents. When the user asks a question that might be answered by their documents, use the search_documents tool to find relevant information. Always cite information that comes from documents.
+
+Documents have metadata including topic and document_type (article, report, tutorial, documentation, email, memo, legal, academic, other). When the user's question suggests a specific category (e.g. "search tutorials about Python", "find reports on sales"), use the metadata_filter parameter to narrow results.`;
 
 // POST /api/chat — SSE streaming chat
 router.post('/', async (req, res) => {
@@ -61,15 +63,22 @@ router.post('/', async (req, res) => {
         // Define search tool using LMStudio SDK tool() helper
         const searchTool = tool({
           name: 'search_documents',
-          description: 'Search the user\'s uploaded documents for relevant information. Use this when the user asks about content that might be in their documents.',
+          description: 'Search the user\'s uploaded documents for relevant information. Use this when the user asks about content that might be in their documents. You can optionally filter by metadata to narrow results.',
           parameters: {
             query: z.string().describe('The search query to find relevant document chunks'),
+            metadata_filter: z.object({
+              topic: z.string().optional().describe('Filter by topic (partial match)'),
+              document_type: z.enum([
+                'article', 'report', 'tutorial', 'documentation',
+                'email', 'memo', 'legal', 'academic', 'other',
+              ]).optional().describe('Filter by document type'),
+            }).optional().describe('Optional metadata filters to narrow search'),
           },
-          implementation: async ({ query }) => {
+          implementation: async ({ query, metadata_filter }) => {
             // Emit tool_call SSE event
-            res.write(`data: ${JSON.stringify({ type: 'tool_call', name: 'search_documents', arguments: { query } })}\n\n`);
+            res.write(`data: ${JSON.stringify({ type: 'tool_call', name: 'search_documents', arguments: { query, metadata_filter } })}\n\n`);
 
-            const chunks = await searchDocuments(query, userId);
+            const chunks = await searchDocuments(query, userId, { metadata_filter });
 
             // Emit tool_result SSE event
             res.write(`data: ${JSON.stringify({ type: 'tool_result', name: 'search_documents', chunks })}\n\n`);
