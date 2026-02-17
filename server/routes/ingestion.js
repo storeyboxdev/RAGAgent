@@ -5,9 +5,10 @@ import { chunkText } from '../lib/chunking.js';
 import { generateEmbeddings } from '../lib/embeddings.js';
 import { hashBuffer, hashString } from '../lib/hashing.js';
 import { extractMetadata } from '../lib/metadata.js';
+import { parseDocument } from '../lib/parsing.js';
 
 const router = Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
 // POST /api/ingestion/upload — upload a file for ingestion
 router.post('/upload', upload.single('file'), async (req, res) => {
@@ -82,7 +83,7 @@ router.post('/upload', upload.single('file'), async (req, res) => {
   }
 
   // Kick off async processing (don't await)
-  processDocument(docId, userId, storagePath).catch((err) => {
+  processDocument(docId, userId, storagePath, mimetype).catch((err) => {
     console.error(`Document processing failed for ${docId}:`, err);
   });
 
@@ -145,7 +146,7 @@ router.delete('/documents/:id', async (req, res) => {
  * 5. Store chunks with embeddings
  * 6. Update status → completed (or error)
  */
-async function processDocument(docId, userId, storagePath) {
+async function processDocument(docId, userId, storagePath, fileType) {
   try {
     // Update status to processing
     await supabaseAdmin
@@ -160,7 +161,10 @@ async function processDocument(docId, userId, storagePath) {
 
     if (downloadError) throw new Error(`Download failed: ${downloadError.message}`);
 
-    const text = await fileData.text();
+    const arrayBuffer = await fileData.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const filename = storagePath.split('/').pop();
+    const text = await parseDocument(buffer, filename, fileType);
 
     // Chunk the text
     const chunks = chunkText(text);

@@ -1,0 +1,8 @@
+services:
+  docling-serve:
+    image: quay.io/docling-project/docling-serve
+    ports:
+      - "5001:5001"
+    restart: unless-stopped
+    environment:
+      - CORS_ALLOWED_ORIGINS=*

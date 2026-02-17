@@ -16,7 +16,7 @@ const mockUserClient = { from: vi.fn() };
 const mockAdminStorage = {
   from: vi.fn().mockReturnValue({
     upload: vi.fn().mockResolvedValue({ error: null }),
-    download: vi.fn().mockResolvedValue({ data: { text: vi.fn().mockResolvedValue('test content') }, error: null }),
+    download: vi.fn().mockResolvedValue({ data: { arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(11)) }, error: null }),
     remove: vi.fn().mockResolvedValue({ error: null }),
   }),
 };
@@ -67,16 +67,23 @@ vi.mock('../../lib/metadata.js', () => ({
   extractMetadata: (...args) => mockExtractMetadata(...args),
 }));
 
+const mockParseDocument = vi.fn().mockResolvedValue('parsed content');
+vi.mock('../../lib/parsing.js', () => ({
+  parseDocument: (...args) => mockParseDocument(...args),
+  SUPPORTED_EXTENSIONS: ['.txt', '.md', '.pdf', '.docx', '.html', '.htm'],
+}));
+
 const { default: request } = await import('supertest');
 const { default: app } = await import('../../app.js');
 
 describe('Ingestion API', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockParseDocument.mockResolvedValue('parsed content');
     // Reset the admin storage mock
     mockAdminStorage.from.mockReturnValue({
       upload: vi.fn().mockResolvedValue({ error: null }),
-      download: vi.fn().mockResolvedValue({ data: { text: vi.fn().mockResolvedValue('test content') }, error: null }),
+      download: vi.fn().mockResolvedValue({ data: { arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(11)) }, error: null }),
       remove: vi.fn().mockResolvedValue({ error: null }),
     });
     // Admin from chain for background processing
@@ -394,6 +401,76 @@ describe('Ingestion API', () => {
       );
       expect(extractingChain.update).toHaveBeenCalledWith(
         expect.objectContaining({ status: 'extracting' })
+      );
+    });
+  });
+
+  describe('Multi-Format Support', () => {
+    it('uploads PDF and calls parseDocument with correct args', async () => {
+      const doc = { id: 'doc-pdf', filename: 'report.pdf', status: 'pending' };
+
+      const hashCheckChain = createQueryChain({ data: null, error: null });
+      const nameCheckChain = createQueryChain({ data: null, error: null });
+      const insertChain = createQueryChain({ data: doc, error: null });
+      mockUserFromSequence([hashCheckChain, nameCheckChain, insertChain]);
+
+      mockExtractMetadata.mockResolvedValue({ topic: 'test' });
+
+      const res = await request(app)
+        .post('/api/ingestion/upload')
+        .attach('file', Buffer.from('fake pdf bytes'), 'report.pdf');
+
+      expect(res.status).toBe(201);
+
+      // Wait for background processing
+      await new Promise((r) => setTimeout(r, 100));
+
+      // parseDocument should have been called with buffer, filename, and mimetype
+      expect(mockParseDocument).toHaveBeenCalledWith(
+        expect.any(Buffer),
+        'report.pdf',
+        'application/pdf'
+      );
+    });
+
+    it('parsing failure sets document status to error', async () => {
+      const doc = { id: 'doc-fail', filename: 'bad.pdf', status: 'pending' };
+
+      const hashCheckChain = createQueryChain({ data: null, error: null });
+      const nameCheckChain = createQueryChain({ data: null, error: null });
+      const insertChain = createQueryChain({ data: doc, error: null });
+      mockUserFromSequence([hashCheckChain, nameCheckChain, insertChain]);
+
+      // Admin calls: processing, then error update
+      const errorChain = createQueryChain({ data: null, error: null });
+      const adminChains = [
+        createQueryChain({ data: null, error: null }), // status → processing
+        errorChain, // status → error
+      ];
+      let adminCallIndex = 0;
+      mockAdminFrom.mockImplementation(() => {
+        const chain = adminChains[adminCallIndex] || adminChains[adminChains.length - 1];
+        adminCallIndex++;
+        return chain;
+      });
+
+      mockParseDocument.mockRejectedValue(new Error('Docling-serve unavailable'));
+
+      const res = await request(app)
+        .post('/api/ingestion/upload')
+        .attach('file', Buffer.from('bad pdf'), 'bad.pdf');
+
+      expect(res.status).toBe(201);
+
+      // Wait for background processing
+      await new Promise((r) => setTimeout(r, 100));
+
+      // Document should be set to error status
+      expect(errorChain.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: 'error',
+          error_message: 'Docling-serve unavailable',
+        })
       );
     });
   });

@@ -57,6 +57,16 @@ Track your progress through the masterclass. Update this file as you complete mo
 - [x] Task 7: Tests — unit tests for metadata, integration tests for extraction in pipeline
 - [x] Task 8: Update PROGRESS.md
 
+### Module 5: Multi-Format Support
+[x]
+- [x] Task 1: Docker Configuration — docker-compose.yml with docling-serve, DOCLING_SERVE_URL env var
+- [x] Task 2: Parsing Library — parseDocument with direct text (.txt/.md) and docling-serve (.pdf/.docx/.html) paths
+- [x] Task 3: Ingestion Pipeline Update — parseDocument integration, 50MB file limit, fileType parameter
+- [x] Task 4: Frontend File Upload — multi-format accept attribute, extension validation, updated drop zone text
+- [x] Task 5: Parsing Unit Tests — 15 tests covering all paths, error handling, extension fallbacks
+- [x] Task 6: Integration Test Updates — parsing mock, arrayBuffer download mock, multi-format test cases
+- [x] Task 7: Update PROGRESS.md
+
 ### Regression Test Suite
 [x]
 - [x] Test infrastructure (vitest + supertest, app.js extraction)

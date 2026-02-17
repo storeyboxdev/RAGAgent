@@ -12,8 +12,10 @@ export default function FileUpload({ onUploaded }) {
     const file = files[0];
     if (!file) return;
 
-    if (!file.name.endsWith('.txt')) {
-      alert('Only .txt files are supported');
+    const SUPPORTED_EXTENSIONS = ['.txt', '.md', '.pdf', '.docx', '.html', '.htm'];
+    const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
+    if (!SUPPORTED_EXTENSIONS.includes(ext)) {
+      alert(`Unsupported file type. Supported: ${SUPPORTED_EXTENSIONS.join(', ')}`);
       return;
     }
 
@@ -64,12 +66,12 @@ export default function FileUpload({ onUploaded }) {
     >
       <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
       <p className="text-sm text-muted-foreground">
-        {uploading ? 'Uploading...' : 'Drop a .txt file here or click to upload'}
+        {uploading ? 'Uploading...' : 'Drop a file here or click to upload (PDF, DOCX, TXT, MD, HTML)'}
       </p>
       <input
         ref={inputRef}
         type="file"
-        accept=".txt"
+        accept=".txt,.md,.pdf,.docx,.html,.htm"
         className="hidden"
         onChange={(e) => handleFiles(e.target.files)}
       />
