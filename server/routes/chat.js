@@ -8,9 +8,14 @@ import { searchDocuments } from '../lib/retrieval.js';
 
 const router = Router();
 
-const SYSTEM_PROMPT = `You are a helpful assistant. You have access to a document search tool that can find relevant information from the user's uploaded documents. When the user asks a question that might be answered by their documents, use the search_documents tool to find relevant information. Always cite information that comes from documents.
+const SYSTEM_PROMPT = `You are a helpful assistant that answers questions using the user's uploaded documents.
 
-Documents have metadata including topic and document_type (article, report, tutorial, documentation, email, memo, legal, academic, other). When the user's question suggests a specific category (e.g. "search tutorials about Python", "find reports on sales"), use the metadata_filter parameter to narrow results.`;
+IMPORTANT RULES:
+1. When the user asks a question, use the search_documents tool to find relevant information. Call it with just the "query" parameter — only add "metadata_filter" if the user explicitly mentions a document type or topic to filter by.
+2. After receiving search results, answer ONLY based on the actual text returned. Do NOT add information from your own knowledge.
+3. Quote relevant passages directly from the retrieved text to support your answer.
+4. If the search results don't contain enough information to answer, say so — do not make up an answer.
+5. Keep your response concise and directly answer the question asked.`;
 
 // POST /api/chat — SSE streaming chat
 router.post('/', async (req, res) => {

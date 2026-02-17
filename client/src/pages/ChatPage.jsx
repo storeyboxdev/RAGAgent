@@ -84,8 +84,8 @@ export default function ChatPage() {
               }
               return updated;
             });
-            // Reset so next text_delta creates a new assistant message
-            hasAssistantMessage = false;
+            // Keep hasAssistantMessage true so subsequent text_deltas
+            // append to the same assistant message bubble
           } else if (data.type === 'text_delta') {
             if (!hasAssistantMessage) {
               // Add new assistant message placeholder
@@ -94,8 +94,13 @@ export default function ChatPage() {
             } else {
               setMessages((prev) => {
                 const updated = [...prev];
-                const last = updated[updated.length - 1];
-                updated[updated.length - 1] = { ...last, content: last.content + data.content };
+                // Find last assistant message (may not be the last element due to tool_call entries)
+                for (let i = updated.length - 1; i >= 0; i--) {
+                  if (updated[i].role === 'assistant') {
+                    updated[i] = { ...updated[i], content: updated[i].content + data.content };
+                    break;
+                  }
+                }
                 return updated;
               });
             }
