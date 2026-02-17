@@ -51,7 +51,11 @@ vi.mock('../../lib/embeddings.js', () => ({
 }));
 
 vi.mock('../../lib/retrieval.js', () => ({
-  searchDocuments: vi.fn().mockResolvedValue([]),
+  searchDocuments: vi.fn().mockImplementation(async () => {
+    const chunks = [];
+    chunks._searchMeta = { search_mode: 'hybrid', reranked: false };
+    return chunks;
+  }),
 }));
 
 const { default: request } = await import('supertest');
@@ -187,6 +191,35 @@ describe('Chat API', () => {
         { role: 'user', content: 'Hello' },
         { role: 'assistant', content: 'Hello world' },
       ]);
+    });
+
+    it('tool_result SSE event includes search_mode and reranked fields', async () => {
+      // Override model.act to invoke the search tool
+      mockModel.act.mockImplementation(async (msgs, tools, opts) => {
+        const searchTool = tools.find((t) => t.name === 'search_documents');
+        await searchTool.implementation({ query: 'test query' });
+        opts.onPredictionFragment({ content: 'Answer' });
+      });
+
+      const threadData = { id: 't1', messages: [], title: 'Test' };
+      const fetchChain = createQueryChain({ data: threadData, error: null });
+      const updateChain = createQueryChain({ data: null, error: null });
+
+      let callCount = 0;
+      mockUserClient.from.mockImplementation(() => {
+        callCount++;
+        return callCount === 1 ? fetchChain : updateChain;
+      });
+
+      const res = await request(app)
+        .post('/api/chat')
+        .send({ threadId: 't1', message: 'test' });
+
+      const events = parseSSEEvents(res.text);
+      const toolResult = events.find((e) => e.type === 'tool_result');
+      expect(toolResult).toBeDefined();
+      expect(toolResult.search_mode).toBe('hybrid');
+      expect(toolResult.reranked).toBe(false);
     });
   });
 

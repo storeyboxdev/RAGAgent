@@ -78,7 +78,7 @@ export default function ChatPage() {
               const updated = [...prev];
               for (let i = updated.length - 1; i >= 0; i--) {
                 if (updated[i].type === 'tool_call' && updated[i].name === data.name && !updated[i].chunks) {
-                  updated[i] = { ...updated[i], chunks: data.chunks };
+                  updated[i] = { ...updated[i], chunks: data.chunks, search_mode: data.search_mode, reranked: data.reranked };
                   break;
                 }
               }

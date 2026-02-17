@@ -1,14 +1,67 @@
 import { supabaseAdmin } from './supabase.js';
 import { generateEmbedding } from './embeddings.js';
+import { keywordSearch } from './keyword-search.js';
+import { rerankChunks } from './reranker.js';
+
+const SEARCH_MODE = process.env.SEARCH_MODE || 'hybrid';
+const RERANK_ENABLED = process.env.RERANK_ENABLED === 'true';
 
 /**
- * Search document chunks by vector similarity.
- * Optionally filter by document metadata before vector search.
- * Returns matched chunks with similarity scores.
+ * Vector search via pgvector cosine similarity.
+ */
+async function vectorSearch(embedding, userId, { limit, threshold, filterDocumentIds }) {
+  const rpcParams = {
+    query_embedding: JSON.stringify(embedding),
+    match_user_id: userId,
+    match_count: limit,
+    match_threshold: threshold,
+  };
+
+  if (filterDocumentIds) {
+    rpcParams.filter_document_ids = filterDocumentIds;
+  }
+
+  const { data, error } = await supabaseAdmin.rpc('match_document_chunks', rpcParams);
+
+  if (error) {
+    console.error('Vector search error:', error);
+    return [];
+  }
+
+  return data || [];
+}
+
+/**
+ * Reciprocal Rank Fusion — merge multiple ranked lists into one.
+ * score(d) = sum(1 / (k + rank_i)) where rank_i is 1-based position.
+ */
+export function reciprocalRankFusion(rankedLists, k = 60) {
+  const scores = new Map();
+  const chunkById = new Map();
+
+  for (const list of rankedLists) {
+    for (let i = 0; i < list.length; i++) {
+      const chunk = list[i];
+      const id = chunk.id;
+      const rrfScore = 1 / (k + i + 1); // i+1 for 1-based rank
+      scores.set(id, (scores.get(id) || 0) + rrfScore);
+      if (!chunkById.has(id)) {
+        chunkById.set(id, chunk);
+      }
+    }
+  }
+
+  return Array.from(scores.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([id, score]) => ({ ...chunkById.get(id), rrf_score: score }));
+}
+
+/**
+ * Search document chunks using vector, keyword, or hybrid mode.
+ * Optionally filter by document metadata before search.
+ * Optionally rerank results with LLM scoring.
  */
 export async function searchDocuments(query, userId, { limit = 5, threshold = 0.5, metadata_filter } = {}) {
-  const embedding = await generateEmbedding(query);
-
   let filterDocumentIds = null;
 
   // If metadata_filter provided, find matching document IDs first
@@ -32,7 +85,6 @@ export async function searchDocuments(query, userId, { limit = 5, threshold = 0.
 
       if (filterError) {
         console.error('Metadata filter error:', filterError);
-        // Fall through to unfiltered search
       } else if (matchingDocs && matchingDocs.length === 0) {
         return [];
       } else if (matchingDocs) {
@@ -40,27 +92,38 @@ export async function searchDocuments(query, userId, { limit = 5, threshold = 0.
       }
     } catch (err) {
       console.error('Metadata filter error:', err);
-      // Fall through to unfiltered search
     }
   }
 
-  const rpcParams = {
-    query_embedding: JSON.stringify(embedding),
-    match_user_id: userId,
-    match_count: limit,
-    match_threshold: threshold,
-  };
+  const fetchLimit = RERANK_ENABLED ? limit * 3 : limit;
+  let results;
 
-  if (filterDocumentIds) {
-    rpcParams.filter_document_ids = filterDocumentIds;
+  if (SEARCH_MODE === 'keyword') {
+    results = await keywordSearch(query, userId, { limit: fetchLimit, filterDocumentIds });
+  } else if (SEARCH_MODE === 'vector') {
+    const embedding = await generateEmbedding(query);
+    results = await vectorSearch(embedding, userId, { limit: fetchLimit, threshold, filterDocumentIds });
+  } else {
+    // hybrid mode (default)
+    const embedding = await generateEmbedding(query);
+    const [vectorResults, keywordResults] = await Promise.all([
+      vectorSearch(embedding, userId, { limit: fetchLimit, threshold, filterDocumentIds }),
+      keywordSearch(query, userId, { limit: fetchLimit, filterDocumentIds }),
+    ]);
+    results = reciprocalRankFusion([vectorResults, keywordResults]);
+    results = results.slice(0, fetchLimit);
   }
 
-  const { data, error } = await supabaseAdmin.rpc('match_document_chunks', rpcParams);
-
-  if (error) {
-    console.error('Search error:', error);
-    return [];
+  // Rerank if enabled
+  if (RERANK_ENABLED && results.length > 0) {
+    results = await rerankChunks(query, results, limit);
+    results.forEach((r) => { r.similarity = r.rerank_score; });
+  } else {
+    results = results.slice(0, limit);
   }
 
-  return data || [];
+  // Attach search metadata
+  results._searchMeta = { search_mode: SEARCH_MODE, reranked: RERANK_ENABLED };
+
+  return results;
 }

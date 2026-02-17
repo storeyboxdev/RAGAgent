@@ -67,6 +67,19 @@ Track your progress through the masterclass. Update this file as you complete mo
 - [x] Task 6: Integration Test Updates — parsing mock, arrayBuffer download mock, multi-format test cases
 - [x] Task 7: Update PROGRESS.md
 
+### Module 6: Hybrid Search & Reranking
+[x]
+- [x] Task 1: Database Migration — tsvector column, GIN index, keyword_search_chunks RPC
+- [x] Task 2: Keyword Search Library — keywordSearch via Postgres full-text search RPC
+- [x] Task 3: Reranker Library — LLM-based relevance scoring with Zod validation
+- [x] Task 4: Retrieval Orchestration — vector/keyword/hybrid modes, RRF fusion, reranking support
+- [x] Task 5: Chat Route SSE Update — search_mode and reranked fields in tool_result events
+- [x] Task 6: Frontend Updates — SearchModeBadge component, relevance/similarity score labels
+- [x] Task 7: Environment Config — SEARCH_MODE and RERANK_ENABLED env vars
+- [x] Task 8: Unit Tests — keyword-search (5), reranker (8), retrieval (6) tests
+- [x] Task 9: Integration Tests — tool_result SSE event includes search_mode and reranked fields
+- [x] Task 10: Update PROGRESS.md
+
 ### Regression Test Suite
 [x]
 - [x] Test infrastructure (vitest + supertest, app.js extraction)
