@@ -68,10 +68,15 @@ vi.mock('../../lib/web-search.js', () => ({
   webSearch: vi.fn(),
 }));
 
+vi.mock('../../lib/sub-agent.js', () => ({
+  runSubAgent: vi.fn(),
+}));
+
 const { default: request } = await import('supertest');
 const { default: app } = await import('../../app.js');
 const { executeQuery } = await import('../../lib/sql-query.js');
 const { isWebSearchEnabled, webSearch } = await import('../../lib/web-search.js');
+const { runSubAgent } = await import('../../lib/sub-agent.js');
 
 function setupThreadMock() {
   const threadData = { id: 't1', messages: [], title: 'Test' };
@@ -322,14 +327,35 @@ describe('Chat API', () => {
       expect(mockModel.act).toHaveBeenCalled();
     });
 
-    it('all three tools available when web search enabled', async () => {
+    it('all four tools available when web search enabled', async () => {
       isWebSearchEnabled.mockReturnValue(true);
 
       mockModel.act.mockImplementation(async (msgs, tools, opts) => {
         const toolNames = tools.map((t) => t.name);
         expect(toolNames).toContain('search_documents');
         expect(toolNames).toContain('query_database');
+        expect(toolNames).toContain('analyze_document');
         expect(toolNames).toContain('web_search');
+        expect(toolNames).toHaveLength(4);
+        opts.onPredictionFragment({ content: 'Done' });
+      });
+
+      setupThreadMock();
+
+      await request(app)
+        .post('/api/chat')
+        .send({ threadId: 't1', message: 'test' });
+    });
+
+    it('search_documents, query_database, and analyze_document when web search disabled', async () => {
+      isWebSearchEnabled.mockReturnValue(false);
+
+      mockModel.act.mockImplementation(async (msgs, tools, opts) => {
+        const toolNames = tools.map((t) => t.name);
+        expect(toolNames).toContain('search_documents');
+        expect(toolNames).toContain('query_database');
+        expect(toolNames).toContain('analyze_document');
+        expect(toolNames).not.toContain('web_search');
         expect(toolNames).toHaveLength(3);
         opts.onPredictionFragment({ content: 'Done' });
       });
@@ -341,15 +367,96 @@ describe('Chat API', () => {
         .send({ threadId: 't1', message: 'test' });
     });
 
-    it('only search_documents and query_database when web search disabled', async () => {
+    // --- Module 8: analyze_document tests ---
+
+    it('analyze_document emits tool_call SSE with correct arguments', async () => {
+      runSubAgent.mockResolvedValue('Document summary here');
+
+      mockModel.act.mockImplementation(async (msgs, tools, opts) => {
+        const analyzeTool = tools.find((t) => t.name === 'analyze_document');
+        await analyzeTool.implementation({ document_id: 'doc-123', task: 'summarize' });
+        opts.onPredictionFragment({ content: 'Here is the summary.' });
+      });
+
+      setupThreadMock();
+
+      const res = await request(app)
+        .post('/api/chat')
+        .send({ threadId: 't1', message: 'Summarize my document' });
+
+      const events = parseSSEEvents(res.text);
+      const toolCall = events.find((e) => e.type === 'tool_call' && e.name === 'analyze_document');
+      expect(toolCall).toBeDefined();
+      expect(toolCall.arguments.document_id).toBe('doc-123');
+      expect(toolCall.arguments.task).toBe('summarize');
+    });
+
+    it('analyze_document emits tool_result SSE when sub-agent completes', async () => {
+      runSubAgent.mockResolvedValue('The document discusses...');
+
+      mockModel.act.mockImplementation(async (msgs, tools, opts) => {
+        const analyzeTool = tools.find((t) => t.name === 'analyze_document');
+        await analyzeTool.implementation({ document_id: 'doc-123', task: 'summarize' });
+        opts.onPredictionFragment({ content: 'Done' });
+      });
+
+      setupThreadMock();
+
+      const res = await request(app)
+        .post('/api/chat')
+        .send({ threadId: 't1', message: 'Summarize' });
+
+      const events = parseSSEEvents(res.text);
+      const toolResult = events.find((e) => e.type === 'tool_result' && e.name === 'analyze_document');
+      expect(toolResult).toBeDefined();
+      expect(toolResult.result).toBe('The document discusses...');
+    });
+
+    it('analyze_document emits error tool_result when runSubAgent throws', async () => {
+      runSubAgent.mockRejectedValue(new Error('Document not found: bad-id'));
+
+      mockModel.act.mockImplementation(async (msgs, tools, opts) => {
+        const analyzeTool = tools.find((t) => t.name === 'analyze_document');
+        await analyzeTool.implementation({ document_id: 'bad-id', task: 'summarize' });
+        opts.onPredictionFragment({ content: 'Error occurred' });
+      });
+
+      setupThreadMock();
+
+      const res = await request(app)
+        .post('/api/chat')
+        .send({ threadId: 't1', message: 'Summarize' });
+
+      const events = parseSSEEvents(res.text);
+      const toolResult = events.find((e) => e.type === 'tool_result' && e.name === 'analyze_document');
+      expect(toolResult).toBeDefined();
+      expect(toolResult.error).toContain('Document not found');
+    });
+
+    it('analyze_document tool is always registered in tools array', async () => {
       isWebSearchEnabled.mockReturnValue(false);
 
       mockModel.act.mockImplementation(async (msgs, tools, opts) => {
-        const toolNames = tools.map((t) => t.name);
-        expect(toolNames).toContain('search_documents');
-        expect(toolNames).toContain('query_database');
-        expect(toolNames).not.toContain('web_search');
-        expect(toolNames).toHaveLength(2);
+        const analyzeTool = tools.find((t) => t.name === 'analyze_document');
+        expect(analyzeTool).toBeDefined();
+        expect(analyzeTool.parameters.document_id).toBeDefined();
+        expect(analyzeTool.parameters.task).toBeDefined();
+        opts.onPredictionFragment({ content: 'Done' });
+      });
+
+      setupThreadMock();
+
+      await request(app)
+        .post('/api/chat')
+        .send({ threadId: 't1', message: 'test' });
+    });
+
+    it('system prompt includes analyze_document routing guidance', async () => {
+      mockModel.act.mockImplementation(async (msgs, tools, opts) => {
+        const systemMsg = msgs[0].content;
+        expect(systemMsg).toContain('analyze_document');
+        expect(systemMsg).toContain('Full document analysis');
+        expect(systemMsg).toContain('query_database first to look up the document_id');
         opts.onPredictionFragment({ content: 'Done' });
       });
 

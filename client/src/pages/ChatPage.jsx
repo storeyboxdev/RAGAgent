@@ -105,6 +105,54 @@ export default function ChatPage() {
                 return updated;
               });
             }
+          } else if (data.type === 'subagent_text_delta') {
+            // Append sub-agent text to the last analyze_document tool call
+            setMessages((prev) => {
+              const updated = [...prev];
+              for (let i = updated.length - 1; i >= 0; i--) {
+                if (updated[i].type === 'tool_call' && updated[i].name === 'analyze_document') {
+                  updated[i] = {
+                    ...updated[i],
+                    subAgentText: (updated[i].subAgentText || '') + data.content,
+                  };
+                  break;
+                }
+              }
+              return updated;
+            });
+          } else if (data.type === 'subagent_tool_call') {
+            // Add nested tool call to the last analyze_document tool call
+            setMessages((prev) => {
+              const updated = [...prev];
+              for (let i = updated.length - 1; i >= 0; i--) {
+                if (updated[i].type === 'tool_call' && updated[i].name === 'analyze_document') {
+                  const subAgentToolCalls = [...(updated[i].subAgentToolCalls || [])];
+                  subAgentToolCalls.push({ name: data.name, arguments: data.arguments });
+                  updated[i] = { ...updated[i], subAgentToolCalls };
+                  break;
+                }
+              }
+              return updated;
+            });
+          } else if (data.type === 'subagent_tool_result') {
+            // Merge result into the last unresolved subagent tool call
+            setMessages((prev) => {
+              const updated = [...prev];
+              for (let i = updated.length - 1; i >= 0; i--) {
+                if (updated[i].type === 'tool_call' && updated[i].name === 'analyze_document') {
+                  const subAgentToolCalls = [...(updated[i].subAgentToolCalls || [])];
+                  for (let j = subAgentToolCalls.length - 1; j >= 0; j--) {
+                    if (subAgentToolCalls[j].name === data.name && !subAgentToolCalls[j].completed) {
+                      subAgentToolCalls[j] = { ...subAgentToolCalls[j], ...data, completed: true };
+                      break;
+                    }
+                  }
+                  updated[i] = { ...updated[i], subAgentToolCalls };
+                  break;
+                }
+              }
+              return updated;
+            });
           } else if (data.type === 'done') {
             if (data.title) {
               threadListRef.current?.refresh();

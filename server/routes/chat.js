@@ -7,6 +7,7 @@ import { getLlmModel } from '../lib/lmstudio.js';
 import { searchDocuments } from '../lib/retrieval.js';
 import { getSchemaDescription, executeQuery } from '../lib/sql-query.js';
 import { isWebSearchEnabled, webSearch } from '../lib/web-search.js';
+import { runSubAgent } from '../lib/sub-agent.js';
 
 const router = Router();
 
@@ -17,12 +18,14 @@ function buildSystemPrompt() {
   let prompt = `You are a helpful assistant that answers questions using the user's uploaded documents.
 
 RULES:
-1. Use search_documents to find information in documents. Only pass "query" — only add "topic" or "document_type" if the user explicitly mentions them.
-2. Answer ONLY based on retrieved text. Quote relevant passages. If results are insufficient, say so.
+1. ALWAYS call search_documents FIRST for any question. Only pass "query" — only add "topic" or "document_type" if the user explicitly mentions them.
+2. Answer ONLY based on retrieved text. Quote relevant passages. If search_documents returns no results, say so.
 3. Use query_database for analytical questions (how many documents, list filenames, statistics). Write SELECT queries only.
 
 TOOL ROUTING:
-- Document content questions → search_documents
+- Document content questions (searching across docs) → search_documents
+- Full document analysis (summarize, review, extract from a specific doc) → analyze_document
+  - Use query_database first to look up the document_id if you only have a filename
 - Collection/analytical questions (counts, lists, stats) → query_database
 
 DATABASE SCHEMA:
@@ -34,7 +37,7 @@ Results limited to 50 rows.`;
     prompt += `
 
 WEB SEARCH TOOL:
-If the user's documents don't contain the answer and the question is about general knowledge, current events, or topics not covered in their documents, use the web_search tool as a fallback. Always cite the source URLs when using web search results.`;
+ONLY use web_search AFTER you have already called search_documents and it returned no relevant results. Never skip document search — the user uploaded documents specifically to ask questions about them. Always cite the source URLs when using web search results.`;
   }
 
   return prompt;
@@ -95,10 +98,7 @@ router.post('/', async (req, res) => {
           parameters: {
             query: z.string().describe('The search query to find relevant document chunks'),
             topic: z.string().optional().describe('Optional: filter by topic (partial match)'),
-            document_type: z.enum([
-              'article', 'report', 'tutorial', 'documentation',
-              'email', 'memo', 'legal', 'academic', 'other',
-            ]).optional().describe('Optional: filter by document type'),
+            document_type: z.string().optional().describe('Optional: filter by document type (e.g. article, report, tutorial, documentation, novel, other)'),
           },
           implementation: async ({ query, topic, document_type }) => {
             // Reconstruct metadata_filter from flat params for the retrieval layer
@@ -148,14 +148,42 @@ router.post('/', async (req, res) => {
           },
         });
 
+        // Define analyze_document tool (delegates to sub-agent)
+        const analyzeDocumentTool = tool({
+          name: 'analyze_document',
+          description: 'Analyze a specific document in depth. Use this for tasks like summarizing, reviewing, or extracting detailed information from a single document. You need the document_id — use query_database first to look it up if you only have a filename.',
+          parameters: {
+            document_id: z.string().describe('The UUID of the document to analyze'),
+            task: z.string().describe('The analysis task to perform on the document (e.g. "summarize", "extract key findings", "list action items")'),
+          },
+          implementation: async ({ document_id, task }) => {
+            return observe(
+              { name: 'tool:analyze_document', input: { document_id, task } },
+              async () => {
+                res.write(`data: ${JSON.stringify({ type: 'tool_call', name: 'analyze_document', arguments: { document_id, task } })}\n\n`);
+
+                try {
+                  const result = await runSubAgent({ document_id, task, userId, res });
+                  res.write(`data: ${JSON.stringify({ type: 'tool_result', name: 'analyze_document', result })}\n\n`);
+                  return result;
+                } catch (error) {
+                  const errorResult = { error: error.message };
+                  res.write(`data: ${JSON.stringify({ type: 'tool_result', name: 'analyze_document', ...errorResult })}\n\n`);
+                  return JSON.stringify(errorResult);
+                }
+              }
+            );
+          },
+        });
+
         // Build dynamic tools array
-        const tools = [searchTool, queryDatabaseTool];
+        const tools = [searchTool, queryDatabaseTool, analyzeDocumentTool];
 
         // Add web_search tool only when enabled
         if (isWebSearchEnabled()) {
           const webSearchTool = tool({
             name: 'web_search',
-            description: 'Search the web for information not found in the user\'s documents. Use this as a fallback when document search doesn\'t have the answer, especially for general knowledge or current events.',
+            description: 'Search the web ONLY after search_documents returned no relevant results. Never use this as the first tool — always search documents first.',
             parameters: {
               query: z.string().describe('The search query to find information on the web'),
             },

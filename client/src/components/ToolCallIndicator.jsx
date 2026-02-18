@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Search, Database, Globe, ChevronDown, ChevronRight } from 'lucide-react';
+import { Search, Database, Globe, FileText, ChevronDown, ChevronRight } from 'lucide-react';
 
 function SearchModeBadge({ searchMode, reranked }) {
   if (!searchMode) return null;
@@ -151,6 +151,54 @@ function WebSearchToolView({ toolCall, expanded, onToggle }) {
   );
 }
 
+function SubAgentView({ toolCall, expanded, onToggle }) {
+  const hasError = toolCall.error;
+  const isComplete = toolCall.completed;
+
+  return (
+    <>
+      <button
+        onClick={onToggle}
+        className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+      >
+        <FileText className="h-3 w-3" />
+        <span>
+          {hasError
+            ? <span className="text-destructive">Analysis error: {toolCall.error}</span>
+            : isComplete
+              ? 'Analysis complete'
+              : 'Analyzing document...'}
+        </span>
+        {(isComplete || hasError) && (
+          expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />
+        )}
+      </button>
+      {expanded && (
+        <div className="mt-2 pl-5 space-y-2">
+          {toolCall.subAgentToolCalls && toolCall.subAgentToolCalls.length > 0 && (
+            <div className="space-y-1">
+              {toolCall.subAgentToolCalls.map((sub, i) => (
+                <div key={i} className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Search className="h-3 w-3" />
+                  <span>
+                    &quot;{sub.arguments?.query}&quot;
+                    {sub.completed && ` — ${sub.count || sub.chunks?.length || 0} result${(sub.count || sub.chunks?.length || 0) !== 1 ? 's' : ''}`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          {toolCall.subAgentText && (
+            <div className="text-xs bg-muted/50 rounded p-2 border text-muted-foreground whitespace-pre-wrap">
+              {toolCall.subAgentText}
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
 export default function ToolCallIndicator({ toolCall }) {
   const [expanded, setExpanded] = useState(false);
   const toggle = () => setExpanded(!expanded);
@@ -159,7 +207,9 @@ export default function ToolCallIndicator({ toolCall }) {
 
   return (
     <div className="my-2 mx-auto max-w-3xl">
-      {toolCall.name === 'query_database' ? (
+      {toolCall.name === 'analyze_document' ? (
+        <SubAgentView {...viewProps} />
+      ) : toolCall.name === 'query_database' ? (
         <SqlToolView {...viewProps} />
       ) : toolCall.name === 'web_search' ? (
         <WebSearchToolView {...viewProps} />

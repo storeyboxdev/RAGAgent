@@ -62,14 +62,18 @@ export function reciprocalRankFusion(rankedLists, k = 60) {
  * Optionally filter by document metadata before search.
  * Optionally rerank results with LLM scoring.
  */
-export async function searchDocuments(query, userId, { limit = 5, threshold = 0.5, metadata_filter } = {}) {
+export async function searchDocuments(query, userId, { limit = 5, threshold = 0.5, metadata_filter, document_id } = {}) {
   return observe(
     { name: 'searchDocuments', input: { query, searchMode: SEARCH_MODE, rerankEnabled: RERANK_ENABLED } },
     async () => {
       let filterDocumentIds = null;
 
+      // Scope to single document if document_id provided
+      if (document_id) {
+        filterDocumentIds = [document_id];
+      }
       // If metadata_filter provided, find matching document IDs first
-      if (metadata_filter && Object.keys(metadata_filter).length > 0) {
+      else if (metadata_filter && Object.keys(metadata_filter).length > 0) {
         try {
           let docQuery = supabaseAdmin
             .from('documents')
@@ -90,7 +94,9 @@ export async function searchDocuments(query, userId, { limit = 5, threshold = 0.
           if (filterError) {
             console.error('Metadata filter error:', filterError);
           } else if (matchingDocs && matchingDocs.length === 0) {
-            return [];
+            // No documents matched the metadata filter — fall back to
+            // unfiltered search so we still attempt vector/keyword matching
+            console.warn('Metadata filter matched 0 documents, falling back to unfiltered search');
           } else if (matchingDocs) {
             filterDocumentIds = matchingDocs.map((d) => d.id);
           }

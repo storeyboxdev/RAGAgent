@@ -93,6 +93,17 @@ Track your progress through the masterclass. Update this file as you complete mo
 - [x] Task 9: Integration Tests — query_database and web_search SSE events, tool registration (6 new tests)
 - [x] Task 10: Update PROGRESS.md
 
+### Module 8: Sub-Agents
+[x]
+- [x] Task 1: Extend searchDocuments — add `document_id` option to scope search to single document
+- [x] Task 2: Sub-Agent Library — `runSubAgent` with isolated context, `search_within_document` tool, SSE streaming
+- [x] Task 3: Chat Route Update — `analyze_document` tool definition, system prompt routing guidance
+- [x] Task 4: Frontend SSE Events — `subagent_text_delta`, `subagent_tool_call`, `subagent_tool_result` handlers
+- [x] Task 5: SubAgentView Component — `FileText` icon, nested tool calls display, sub-agent reasoning text
+- [x] Task 6: Unit Tests — sub-agent library (10 tests)
+- [x] Task 7: Integration Tests — `analyze_document` tool SSE events, registration, system prompt (5 tests)
+- [x] Task 8: Update PROGRESS.md
+
 ### Regression Test Suite
 [x]
 - [x] Test infrastructure (vitest + supertest, app.js extraction)
