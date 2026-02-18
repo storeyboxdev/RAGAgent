@@ -33,14 +33,18 @@ describe('rerankChunks', () => {
   });
 
   it('scores chunks and sorts by rerank_score descending', async () => {
-    mockRespond
-      .mockResolvedValueOnce({ content: '{"score": 0.3}' })
-      .mockResolvedValueOnce({ content: '{"score": 0.9}' })
-      .mockResolvedValueOnce({ content: '{"score": 0.6}' });
+    mockRespond.mockResolvedValueOnce({
+      content: JSON.stringify([
+        { index: 0, score: 0.3 },
+        { index: 1, score: 0.9 },
+        { index: 2, score: 0.6 },
+      ]),
+    });
 
     const chunks = [makeChunk('c1'), makeChunk('c2'), makeChunk('c3')];
     const result = await rerankChunks('test query', chunks, 3);
 
+    expect(mockRespond).toHaveBeenCalledTimes(1);
     expect(result[0].id).toBe('c2');
     expect(result[0].rerank_score).toBe(0.9);
     expect(result[1].id).toBe('c3');
@@ -50,10 +54,13 @@ describe('rerankChunks', () => {
   });
 
   it('respects limit parameter', async () => {
-    mockRespond
-      .mockResolvedValueOnce({ content: '{"score": 0.3}' })
-      .mockResolvedValueOnce({ content: '{"score": 0.9}' })
-      .mockResolvedValueOnce({ content: '{"score": 0.6}' });
+    mockRespond.mockResolvedValueOnce({
+      content: JSON.stringify([
+        { index: 0, score: 0.3 },
+        { index: 1, score: 0.9 },
+        { index: 2, score: 0.6 },
+      ]),
+    });
 
     const chunks = [makeChunk('c1'), makeChunk('c2'), makeChunk('c3')];
     const result = await rerankChunks('test query', chunks, 2);
@@ -64,15 +71,17 @@ describe('rerankChunks', () => {
   });
 
   it('strips markdown code fences from LLM response', async () => {
-    mockRespond.mockResolvedValue({ content: '```json\n{"score": 0.8}\n```' });
+    mockRespond.mockResolvedValueOnce({
+      content: '```json\n[{"index": 0, "score": 0.8}]\n```',
+    });
 
     const result = await rerankChunks('query', [makeChunk('c1')], 1);
     expect(result[0].rerank_score).toBe(0.8);
   });
 
   it('strips think blocks from reasoning model response', async () => {
-    mockRespond.mockResolvedValue({
-      content: '<think>Let me evaluate this...</think>\n{"score": 0.75}',
+    mockRespond.mockResolvedValueOnce({
+      content: '<think>Let me evaluate this...</think>\n[{"index": 0, "score": 0.75}]',
     });
 
     const result = await rerankChunks('query', [makeChunk('c1')], 1);
@@ -80,7 +89,7 @@ describe('rerankChunks', () => {
   });
 
   it('assigns score 0 on failed LLM call', async () => {
-    mockRespond.mockRejectedValue(new Error('LLM timeout'));
+    mockRespond.mockRejectedValueOnce(new Error('LLM timeout'));
 
     const result = await rerankChunks('query', [makeChunk('c1')], 1);
     expect(result[0].rerank_score).toBe(0);
@@ -88,9 +97,28 @@ describe('rerankChunks', () => {
   });
 
   it('assigns score 0 when Zod rejects out-of-range score', async () => {
-    mockRespond.mockResolvedValue({ content: '{"score": 1.5}' });
+    mockRespond.mockResolvedValueOnce({
+      content: JSON.stringify([{ index: 0, score: 1.5 }]),
+    });
 
     const result = await rerankChunks('query', [makeChunk('c1')], 1);
     expect(result[0].rerank_score).toBe(0);
+  });
+
+  it('assigns score 0 for chunks missing from LLM response', async () => {
+    mockRespond.mockResolvedValueOnce({
+      content: JSON.stringify([
+        { index: 0, score: 0.8 },
+        // index 1 missing
+      ]),
+    });
+
+    const chunks = [makeChunk('c1'), makeChunk('c2')];
+    const result = await rerankChunks('query', chunks, 2);
+
+    expect(result[0].id).toBe('c1');
+    expect(result[0].rerank_score).toBe(0.8);
+    expect(result[1].id).toBe('c2');
+    expect(result[1].rerank_score).toBe(0);
   });
 });
